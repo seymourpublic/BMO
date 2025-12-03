@@ -49,7 +49,12 @@ setInterval(() => {
 
 // Enable CORS for frontend
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000'
+  origin: [
+    'http://localhost:3000',  // Local dev
+    'https://your-app.vercel.app',  // Production
+    /\.vercel\.app$/  // All Vercel preview deployments
+  ],
+  credentials: true
 }));
 
 // Parse JSON bodies

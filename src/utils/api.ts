@@ -19,12 +19,10 @@ export const sendMessageToClaude = async (
     // Call our backend proxy instead of Anthropic directly
     // This avoids CORS issues
     // In production, same origin; in dev, localhost:3001
-    const API_URL = import.meta.env.PROD 
-      ? '/api/chat'  // Production: same server
-      : 'http://localhost:3001/api/chat';  // Development: separate server
-    
-    const response = await fetch(API_URL, {
-      method: "POST",
+const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+const response = await fetch(`${API_URL}/api/chat`, {
+  method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
