@@ -1,0 +1,68 @@
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.grid-cols-16 {
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: #4fb8b9;
+  border-radius: 3px;
+}
+
+.btn-retro {
+  @apply bg-gradient-to-b from-[#2d6d6e] to-[#1e4d4e] border-none rounded-lg p-3 text-[#8ee4d4] font-press-start text-[8px] cursor-pointer shadow-[0_4px_0_#0a2d2e,0_6px_12px_rgba(0,0,0,0.3)] transition-all uppercase relative overflow-hidden;
+}
+
+.btn-retro:hover {
+  @apply -translate-y-0.5 shadow-[0_6px_0_#0a2d2e,0_8px_16px_rgba(0,0,0,0.4)];
+}
+
+.btn-retro:active {
+  @apply translate-y-0.5 shadow-[0_2px_0_#0a2d2e,0_4px_8px_rgba(0,0,0,0.3)];
+}
+
+.btn-retro-primary {
+  @apply bg-gradient-to-b from-[#f39c12] to-[#e67e22] border-none rounded-lg p-4 text-white font-press-start text-[10px] cursor-pointer shadow-[0_4px_0_#c0730e,0_6px_12px_rgba(0,0,0,0.3)] transition-all uppercase disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.btn-retro-primary:hover:not(:disabled) {
+  @apply -translate-y-0.5 shadow-[0_6px_0_#c0730e,0_8px_16px_rgba(0,0,0,0.4)];
+}
+
+.btn-retro-primary:active:not(:disabled) {
+  @apply translate-y-0.5 shadow-[0_2px_0_#c0730e,0_4px_8px_rgba(0,0,0,0.3)];
+}
+
+/* Music notes floating animation */
+@keyframes float-up {
+  0% {
+    transform: translateY(0) scale(0.5) rotate(0deg);
+    opacity: 0;
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-250px) scale(1.2) rotate(15deg);
+    opacity: 0;
+  }
+}
+
+.animate-float-up {
+  animation: float-up 3s ease-out infinite;
+  color: #f39c12;
+  text-shadow: 0 0 10px rgba(243, 156, 18, 0.8);
+}

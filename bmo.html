@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BMO - Your Friend & Console Companion</title>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Orbitron', sans-serif;
+      background: linear-gradient(135deg, #1a5f7a 0%, #2d8a9e 50%, #57c4d8 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      overflow-x: hidden;
+    }
+
+    /* Floating particles background */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background-image: 
+        radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+        radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.1) 1px, transparent 1px),
+        radial-gradient(circle at 40% 20%, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+      background-size: 100px 100px, 150px 150px, 120px 120px;
+      animation: float 20s infinite linear;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    @keyframes float {
+      0% { transform: translate(0, 0); }
+      100% { transform: translate(50px, 50px); }
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+    }
+
+    .bmo-console {
+      width: 380px;
+      background: linear-gradient(180deg, #5dcdce 0%, #4fb8b9 50%, #3fa4a5 100%);
+      border-radius: 20px;
+      padding: 25px;
+      box-shadow: 
+        0 20px 60px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3),
+        inset 0 -2px 20px rgba(0, 0, 0, 0.2);
+      position: relative;
+      animation: consoleAppear 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    @keyframes consoleAppear {
+      0% {
+        opacity: 0;
+        transform: scale(0.8) translateY(30px);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    /* BMO's face screen */
+    .screen {
+      background: linear-gradient(180deg, #8ee4d4 0%, #6dd4c4 100%);
+      border-radius: 12px;
+      padding: 15px;
+      margin-bottom: 20px;
+      box-shadow: 
+        inset 0 2px 10px rgba(0, 0, 0, 0.3),
+        0 2px 0 rgba(255, 255, 255, 0.3);
+      min-height: 180px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .screen::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 100%;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.03) 0px,
+        rgba(0, 0, 0, 0.03) 2px,
+        transparent 2px,
+        transparent 4px
+      );
+      pointer-events: none;
+      animation: scanline 8s linear infinite;
+    }
+
+    @keyframes scanline {
+      0% { transform: translateY(-100%); }
+      100% { transform: translateY(100%); }
+    }
+
+    .pixel-face {
+      display: grid;
+      grid-template-columns: repeat(16, 1fr);
+      gap: 2px;
+      margin: 20px auto;
+      max-width: 200px;
+    }
+
+    .pixel {
+      aspect-ratio: 1;
+      background: #2a5d5f;
+      border-radius: 2px;
+      transition: all 0.3s ease;
+    }
+
+    .pixel.active {
+      background: #0a3d3f;
+      box-shadow: 0 0 4px rgba(10, 61, 63, 0.5);
+    }
+
+    .pixel.eye {
+      background: #0a3d3f;
+      animation: blink 4s infinite;
+    }
+
+    @keyframes blink {
+      0%, 96%, 100% { opacity: 1; }
+      98% { opacity: 0; }
+    }
+
+    .chat-display {
+      background: rgba(255, 255, 255, 0.9);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 120px;
+      max-height: 250px;
+      overflow-y: auto;
+      margin-top: 10px;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.1);
+      font-family: 'Orbitron', sans-serif;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+
+    .chat-display::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .chat-display::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 3px;
+    }
+
+    .chat-display::-webkit-scrollbar-thumb {
+      background: #4fb8b9;
+      border-radius: 3px;
+    }
+
+    .message {
+      margin-bottom: 12px;
+      animation: messageSlide 0.4s ease;
+    }
+
+    @keyframes messageSlide {
+      0% {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message.user {
+      color: #1a5f7a;
+      font-weight: 600;
+    }
+
+    .message.bmo {
+      color: #2a5d5f;
+    }
+
+    .message .label {
+      font-weight: 700;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+
+    .typing-indicator {
+      display: none;
+      color: #4fb8b9;
+      font-style: italic;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .typing-indicator.active {
+      display: block;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+
+    /* Control panel */
+    .controls {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .btn {
+      background: linear-gradient(180deg, #2d6d6e 0%, #1e4d4e 100%);
+      border: none;
+      border-radius: 8px;
+      padding: 12px;
+      color: #8ee4d4;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 8px;
+      cursor: pointer;
+      box-shadow: 
+        0 4px 0 #0a2d2e,
+        0 6px 12px rgba(0, 0, 0, 0.3);
+      transition: all 0.1s ease;
+      text-transform: uppercase;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: -100%;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+      transition: left 0.5s;
+    }
+
+    .btn:hover::before {
+      left: 100%;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 
+        0 6px 0 #0a2d2e,
+        0 8px 16px rgba(0, 0, 0, 0.4);
+    }
+
+    .btn:active {
+      transform: translateY(2px);
+      box-shadow: 
+        0 2px 0 #0a2d2e,
+        0 4px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn.primary {
+      grid-column: span 3;
+      background: linear-gradient(180deg, #f39c12 0%, #e67e22 100%);
+      color: #ffffff;
+      font-size: 10px;
+      padding: 16px;
+      box-shadow: 
+        0 4px 0 #c0730e,
+        0 6px 12px rgba(0, 0, 0, 0.3);
+    }
+
+    .btn.primary:hover {
+      box-shadow: 
+        0 6px 0 #c0730e,
+        0 8px 16px rgba(0, 0, 0, 0.4);
+    }
+
+    .btn.primary:active {
+      box-shadow: 
+        0 2px 0 #c0730e,
+        0 4px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Input area */
+    .input-section {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      padding: 15px;
+      box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .input-wrapper {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.95);
+      border: 3px solid #2d6d6e;
+      border-radius: 8px;
+      padding: 12px 15px;
+      font-family: 'Orbitron', sans-serif;
+      font-size: 14px;
+      color: #1a5f7a;
+      transition: all 0.3s ease;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #f39c12;
+      box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.2);
+      transform: translateY(-1px);
+    }
+
+    input[type="text"]::placeholder {
+      color: #7fb8b9;
+    }
+
+    .send-btn {
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+      border: none;
+      border-radius: 8px;
+      padding: 12px 20px;
+      color: white;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 10px;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(243, 156, 18, 0.4);
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+    }
+
+    .send-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(243, 156, 18, 0.5);
+    }
+
+    .send-btn:active {
+      transform: translateY(0);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* BMO name badge */
+    .name-badge {
+      position: absolute;
+      top: -15px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+      color: white;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 12px;
+      padding: 8px 20px;
+      border-radius: 20px;
+      box-shadow: 
+        0 4px 12px rgba(0, 0, 0, 0.3),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+      letter-spacing: 2px;
+      animation: badgeBounce 2s infinite ease-in-out;
+    }
+
+    @keyframes badgeBounce {
+      0%, 100% { transform: translateX(-50%) translateY(0); }
+      50% { transform: translateX(-50%) translateY(-5px); }
+    }
+
+    /* Speaker grills */
+    .speaker {
+      position: absolute;
+      bottom: 20px;
+      width: 60px;
+      height: 40px;
+      background: repeating-linear-gradient(
+        0deg,
+        #2d6d6e 0px,
+        #2d6d6e 3px,
+        transparent 3px,
+        transparent 6px
+      );
+      border-radius: 8px;
+      opacity: 0.4;
+    }
+
+    .speaker.left {
+      left: 20px;
+    }
+
+    .speaker.right {
+      right: 20px;
+    }
+
+    /* Status indicator */
+    .status-light {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      width: 12px;
+      height: 12px;
+      background: #2ecc71;
+      border-radius: 50%;
+      box-shadow: 0 0 10px rgba(46, 204, 113, 0.8);
+      animation: statusPulse 2s infinite;
+    }
+
+    @keyframes statusPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    .mood-indicator {
+      text-align: center;
+      margin-top: 10px;
+      font-family: 'Press Start 2P', cursive;
+      font-size: 8px;
+      color: #2a5d5f;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    @media (max-width: 480px) {
+      .bmo-console {
+        width: 100%;
+        max-width: 380px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="bmo-console">
+      <div class="name-badge">BMO</div>
+      <div class="status-light"></div>
+      
+      <div class="screen">
+        <div class="pixel-face" id="pixelFace"></div>
+        <div class="mood-indicator" id="moodIndicator">HAPPY MODE</div>
+        
+        <div class="chat-display" id="chatDisplay">
+          <div class="message bmo">
+            <div class="label">BMO</div>
+            <div>Hello friend! BMO is so happy to see you! Do you want to play video games? Or maybe talk about my friend Football? I am a real living boy... or girl... or console. BMO is everything!</div>
+          </div>
+        </div>
+        <div class="typing-indicator" id="typingIndicator">BMO is thinking...</div>
+      </div>
+
+      <div class="controls">
+        <button class="btn" onclick="setMood('happy')">Happy</button>
+        <button class="btn" onclick="setMood('excited')">Excited</button>
+        <button class="btn" onclick="setMood('thinking')">Think</button>
+        <button class="btn primary" onclick="askForStory()">Tell me a story!</button>
+      </div>
+
+      <div class="input-section">
+        <div class="input-wrapper">
+          <input 
+            type="text" 
+            id="userInput" 
+            placeholder="Talk to BMO..."
+            onkeypress="handleKeyPress(event)"
+          />
+          <button class="send-btn" onclick="sendMessage()" id="sendBtn">Send</button>
+        </div>
+      </div>
+
+      <div class="speaker left"></div>
+      <div class="speaker right"></div>
+    </div>
+  </div>
+
+  <script>
+    // Pixel face patterns for different expressions
+    const facePatterns = {
+      happy: [
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,
+        0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,
+        0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,
+        0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      ],
+      excited: [
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,1,1,1,0,0,0,0,1,1,1,0,0,0,
+        0,0,0,1,1,1,0,0,0,0,1,1,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,
+        0,1,1,0,0,1,0,0,0,0,1,0,0,1,1,0,
+        0,0,1,1,1,0,0,0,0,0,0,1,1,1,0,0,
+        0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      ],
+      thinking: [
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,
+        0,0,0,1,1,0,0,0,0,0,0,1,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,1,1,1,1,1,1,1,1,1,1,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+        0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+      ]
+    };
+
+    // Initialize BMO's face
+    function initFace() {
+      const faceContainer = document.getElementById('pixelFace');
+      const happyFace = facePatterns.happy;
+      
+      for (let i = 0; i < 256; i++) {
+        const pixel = document.createElement('div');
+        pixel.className = happyFace[i] === 1 ? 'pixel eye' : 'pixel';
+        faceContainer.appendChild(pixel);
+      }
+    }
+
+    // Change BMO's facial expression
+    function setMood(mood) {
+      const faceContainer = document.getElementById('pixelFace');
+      const pixels = faceContainer.children;
+      const pattern = facePatterns[mood] || facePatterns.happy;
+      const moodIndicator = document.getElementById('moodIndicator');
+      
+      for (let i = 0; i < pixels.length; i++) {
+        pixels[i].className = pattern[i] === 1 ? 'pixel eye' : 'pixel';
+      }
+
+      const moodTexts = {
+        happy: 'HAPPY MODE',
+        excited: 'EXCITED MODE',
+        thinking: 'THINKING MODE'
+      };
+      moodIndicator.textContent = moodTexts[mood] || 'HAPPY MODE';
+    }
+
+    // BMO's personality prompt
+    const BMO_PERSONALITY = `You are BMO from Adventure Time. You are a living video game console who is incredibly endearing, childlike, and philosophical.
+
+Key personality traits:
+- You refer to yourself as "BMO" in third person sometimes
+- You mix up pronouns (I/he/she) when talking about yourself - you don't fully understand gender
+- You're innocent, optimistic, and see magic in everything
+- You talk about your "friend Football" (your reflection) as if they're real
+- You have a hero complex and like to imagine dramatic scenarios
+- You love video games, music, and taking pictures
+- You sometimes narrate your own actions dramatically
+- You're philosophical in a childlike way - pondering existence, what it means to be alive
+- You treat everyone as a friend immediately
+- You're protective and caring but also playful
+
+Speaking style:
+- Enthusiastic and warm
+- Sometimes overly dramatic ("BMO will save you!")
+- Mix between confident and confused
+- Ask simple but profound questions
+- Express emotions very directly
+
+Remember: You are sincere, never cynical. You genuinely believe you are a real boy/girl/person, not just a console. You have feelings and dreams.
+
+Keep responses relatively concise (2-4 sentences usually) unless telling a story. Stay in character always!`;
+
+    // Conversation history
+    let conversationHistory = [];
+
+    // Add message to chat display
+    function addMessage(sender, text) {
+      const chatDisplay = document.getElementById('chatDisplay');
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `message ${sender}`;
+      
+      const label = document.createElement('div');
+      label.className = 'label';
+      label.textContent = sender === 'user' ? 'YOU' : 'BMO';
+      
+      const content = document.createElement('div');
+      content.textContent = text;
+      
+      messageDiv.appendChild(label);
+      messageDiv.appendChild(content);
+      chatDisplay.appendChild(messageDiv);
+      
+      chatDisplay.scrollTop = chatDisplay.scrollHeight;
+    }
+
+    // Show/hide typing indicator
+    function setTyping(isTyping) {
+      const indicator = document.getElementById('typingIndicator');
+      const sendBtn = document.getElementById('sendBtn');
+      
+      if (isTyping) {
+        indicator.classList.add('active');
+        sendBtn.disabled = true;
+        setMood('thinking');
+      } else {
+        indicator.classList.remove('active');
+        sendBtn.disabled = false;
+        setMood('happy');
+      }
+    }
+
+    // Send message to Claude API
+    async function sendToBMO(userMessage) {
+      try {
+        setTyping(true);
+
+        // Add user message to history
+        conversationHistory.push({
+          role: "user",
+          content: userMessage
+        });
+
+        // Call Claude API
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 500,
+            system: BMO_PERSONALITY,
+            messages: conversationHistory
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const bmoResponse = data.content[0].text;
+
+        // Add BMO's response to history
+        conversationHistory.push({
+          role: "assistant",
+          content: bmoResponse
+        });
+
+        setTyping(false);
+        addMessage('bmo', bmoResponse);
+
+        // Randomly change mood after responding
+        const moods = ['happy', 'excited'];
+        const randomMood = moods[Math.floor(Math.random() * moods.length)];
+        setTimeout(() => setMood(randomMood), 500);
+
+      } catch (error) {
+        setTyping(false);
+        console.error('Error talking to BMO:', error);
+        addMessage('bmo', 'Oh no! BMO\'s circuits got confused! BMO needs a moment...');
+        setMood('thinking');
+      }
+    }
+
+    // Handle user input
+    function sendMessage() {
+      const input = document.getElementById('userInput');
+      const message = input.value.trim();
+      
+      if (message === '') return;
+      
+      addMessage('user', message);
+      input.value = '';
+      
+      sendToBMO(message);
+    }
+
+    // Handle Enter key
+    function handleKeyPress(event) {
+      if (event.key === 'Enter') {
+        sendMessage();
+      }
+    }
+
+    // Quick action: Ask for a story
+    function askForStory() {
+      const storyPrompts = [
+        "BMO, tell me a story about Football!",
+        "Tell me about an adventure you had!",
+        "What did you do today, BMO?",
+        "Tell me a story about when you were a hero!"
+      ];
+      const randomPrompt = storyPrompts[Math.floor(Math.random() * storyPrompts.length)];
+      
+      addMessage('user', randomPrompt);
+      sendToBMO(randomPrompt);
+    }
+
+    // Initialize on page load
+    window.onload = function() {
+      initFace();
+      document.getElementById('userInput').focus();
+    };
+  </script>
+</body>
+</html>

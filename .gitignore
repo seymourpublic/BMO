@@ -1,0 +1,206 @@
+# BMO Companion - .gitignore
+
+# ============================================
+# CRITICAL: Environment Variables & API Keys
+# ============================================
+# NEVER commit these files!
+.env
+.env.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
+*.env
+
+# Extra protection for API keys
+**/ANTHROPIC_API_KEY*
+**/FISH_AUDIO_API_KEY*
+
+# ============================================
+# Dependencies
+# ============================================
+node_modules/
+/.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ============================================
+# Build Output
+# ============================================
+/build
+/dist
+dist-ssr/
+*.local
+
+# ============================================
+# Testing & Coverage
+# ============================================
+/coverage
+*.lcov
+.nyc_output
+
+# ============================================
+# Logs
+# ============================================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ============================================
+# Editor Directories and Files
+# ============================================
+# VSCode
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.history/*
+
+# IntelliJ IDEA
+.idea
+*.iml
+*.iws
+*.ipr
+out/
+
+# Eclipse
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# General editor files
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.swp
+*.swo
+*~
+
+# ============================================
+# OS Files
+# ============================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================
+# Vite
+# ============================================
+.vite
+
+# ============================================
+# Cache
+# ============================================
+.cache/
+.parcel-cache/
+.npm/
+.eslintcache
+.stylelintcache
+*.tsbuildinfo
+
+# ============================================
+# Deployment Platforms
+# ============================================
+.vercel
+.netlify
+.railway
+
+# ============================================
+# Temporary Files
+# ============================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.backup
+*.bak
+*.orig
+
+# ============================================
+# Package Manager Lock Files (Optional)
+# ============================================
+# Uncomment if you want to ignore lock files
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# ============================================
+# Archives & Compressed Files
+# ============================================
+# Uncomment if you don't want to track these
+# *.tar.gz
+# *.zip
+# *.rar
+# *.7z
+
+# ============================================
+# Database Files (if you add persistence)
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# Certificates & Keys
+# ============================================
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+
+# ============================================
+# Python (if you add Python scripts)
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ============================================
+# Documentation Builds
+# ============================================
+docs/_build/
+.docusaurus/
+
+# ============================================
+# Personal Notes & TODO Lists
+# ============================================
+notes.txt
+TODO.txt
+NOTES.md
+ROADMAP.md
+scratch.md
+
+# ============================================
+# BMO-Specific (add custom ignores here)
+# ============================================
+# Example: uploads folder if you add file uploads
+# uploads/
+# media/
