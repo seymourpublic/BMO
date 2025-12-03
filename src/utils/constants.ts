@@ -125,7 +125,8 @@ export const MOOD_TEXTS: Record<string, string> = {
   excited: 'EXCITED MODE',
   thinking: 'THINKING MODE',
   sad: 'SAD MODE',
-  surprised: 'SURPRISED MODE'
+  surprised: 'SURPRISED MODE',
+  confused: 'CONFUSED MODE'
 };
 
 export const STORY_PROMPTS = [

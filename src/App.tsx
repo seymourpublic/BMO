@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { BMOFace } from './components/BMOFaceWithVoice';
-import { ChatMessage } from './components/ChatMessage';
+import { BMOFace } from './components/BMOFace';
 import { sendMessageToClaude } from './utils/api';
 import { MOOD_TEXTS, STORY_PROMPTS } from './utils/constants';
 import { Message, Mood } from './types';
@@ -13,7 +12,6 @@ import './App.css';
 
 const App: React.FC = () => {
   const [mood, setMood] = useState<Mood>('happy');
-  const [messages, setMessages] = useState<Message[]>([]);  // Keep for conversation history
   const [inputValue, setInputValue] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
@@ -89,10 +87,6 @@ const App: React.FC = () => {
         setMood('excited');
         setIsTyping(false);
         
-        // Add acknowledgment
-        const acknowledgment = "*screen lights up excitedly* Oh! BMO remembers! *giggles* This is BMO's special song for Erica and Naledi! ♪";
-        setMessages(prev => [...prev, { role: 'assistant', content: acknowledgment }]);
-        
         // Play excited sound
         soundEffects.playEmote('excited');
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -108,12 +102,6 @@ const App: React.FC = () => {
         if (ttsSupported) {
           await speak(`♪ ${SPECIAL_SONG_LYRICS} ♪`);
         }
-        
-        // Add the song to chat
-        setMessages(prev => [...prev, { 
-          role: 'assistant', 
-          content: `*sings sweetly* ♪\n\n${SPECIAL_SONG_LYRICS}\n\n♪ *giggles* BMO hopes Erica says yes!` 
-        }]);
         
         setMood('excited');
         setShowMusicNotes(false);
@@ -145,7 +133,6 @@ const App: React.FC = () => {
       setConversationHistory(updatedHistory);
 
       // Add BMO's response to messages (FULL text with emotes for display)
-      setMessages(prev => [...prev, { role: 'assistant', content: bmoResponse }]);
       
       setIsTyping(false);
       
@@ -175,10 +162,6 @@ const App: React.FC = () => {
       soundEffects.playError();
       
       const errorMsg = "Oh no! BMO's circuits got confused! BMO needs a moment...";
-      setMessages(prev => [...prev, { 
-        role: 'assistant', 
-        content: errorMsg
-      }]);
       if (voiceEnabled && ttsSupported) {
         speak(errorMsg);
       }
@@ -283,7 +266,6 @@ const App: React.FC = () => {
         const messageToSend = transcript.trim();
         if (messageToSend.length > 0) {
           console.log('📤 Sending message:', messageToSend);
-          setMessages(prev => [...prev, { role: 'user', content: messageToSend }]);
           sendToBMO(messageToSend);
           setInputValue('');
           resetTranscript();
@@ -299,7 +281,6 @@ const App: React.FC = () => {
     if (inputValue.trim() === '' || isTyping) return;
     
     const userMessage = inputValue.trim();
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setInputValue('');
     
     // Play send sound
@@ -318,7 +299,6 @@ const App: React.FC = () => {
   // Quick action: Ask for story
   const askForStory = () => {
     const randomPrompt = STORY_PROMPTS[Math.floor(Math.random() * STORY_PROMPTS.length)];
-    setMessages(prev => [...prev, { role: 'user', content: randomPrompt }]);
     
     // Play button click sound
     soundEffects.playButtonClick();
@@ -483,6 +463,71 @@ const App: React.FC = () => {
                 Voice
               </button>
             )}
+          </div>
+
+          {/* BMO's Physical Buttons */}
+          <div className="mb-4 py-4 px-2 bg-gradient-to-b from-[#4fb8b9] to-[#3fa4a5] rounded-xl border-2 border-[#2d6d6e]">
+            <div className="flex justify-between items-center px-4">
+              {/* D-Pad (Left) */}
+              <div className="relative w-24 h-24">
+                {/* D-pad background */}
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="relative w-20 h-20">
+                    {/* Center */}
+                    <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 bg-[#1a5f7a] rounded-sm"></div>
+                    
+                    {/* Up */}
+                    <button className="absolute top-0 left-1/2 -translate-x-1/2 w-6 h-7 bg-gradient-to-b from-[#f4c430] to-[#daa520] rounded-t-md shadow-md hover:brightness-110 active:brightness-90 transition-all">
+                      <div className="text-[10px] text-[#1a5f7a] font-bold">▲</div>
+                    </button>
+                    
+                    {/* Right */}
+                    <button className="absolute right-0 top-1/2 -translate-y-1/2 w-7 h-6 bg-gradient-to-r from-[#f4c430] to-[#daa520] rounded-r-md shadow-md hover:brightness-110 active:brightness-90 transition-all">
+                      <div className="text-[10px] text-[#1a5f7a] font-bold">▶</div>
+                    </button>
+                    
+                    {/* Down */}
+                    <button className="absolute bottom-0 left-1/2 -translate-x-1/2 w-6 h-7 bg-gradient-to-t from-[#f4c430] to-[#daa520] rounded-b-md shadow-md hover:brightness-110 active:brightness-90 transition-all">
+                      <div className="text-[10px] text-[#1a5f7a] font-bold">▼</div>
+                    </button>
+                    
+                    {/* Left */}
+                    <button className="absolute left-0 top-1/2 -translate-y-1/2 w-7 h-6 bg-gradient-to-l from-[#f4c430] to-[#daa520] rounded-l-md shadow-md hover:brightness-110 active:brightness-90 transition-all">
+                      <div className="text-[10px] text-[#1a5f7a] font-bold">◀</div>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* XYAB Buttons (Right) */}
+              <div className="relative w-24 h-24">
+                {/* Y (Top - Blue) */}
+                <button className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-8 bg-gradient-to-b from-[#4169e1] to-[#1e3a8a] rounded-full shadow-lg border-2 border-[#1a237e] hover:scale-110 active:scale-95 transition-all">
+                  <div className="text-white font-bold text-xs">Y</div>
+                </button>
+                
+                {/* B (Right - Red) */}
+                <button className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 bg-gradient-to-b from-[#ef4444] to-[#dc2626] rounded-full shadow-lg border-2 border-[#991b1b] hover:scale-110 active:scale-95 transition-all">
+                  <div className="text-white font-bold text-sm">B</div>
+                </button>
+                
+                {/* A (Bottom - Green) */}
+                <button className="absolute bottom-0 left-1/2 -translate-x-1/2 w-9 h-9 bg-gradient-to-b from-[#22c55e] to-[#16a34a] rounded-full shadow-lg border-2 border-[#15803d] hover:scale-110 active:scale-95 transition-all">
+                  <div className="text-white font-bold text-sm">A</div>
+                </button>
+                
+                {/* X (Left - Light Blue/Cyan) */}
+                <button className="absolute left-0 top-1/2 -translate-y-1/2 w-8 h-8 bg-gradient-to-b from-[#06b6d4] to-[#0891b2] rounded-full shadow-lg border-2 border-[#0e7490] hover:scale-110 active:scale-95 transition-all">
+                  <div className="text-white font-bold text-xs">X</div>
+                </button>
+              </div>
+            </div>
+            
+            {/* Button labels */}
+            <div className="flex justify-between px-6 mt-2">
+              <div className="text-[#1a5f7a] font-press-start text-[6px] uppercase">D-Pad</div>
+              <div className="text-[#1a5f7a] font-press-start text-[6px] uppercase">Action</div>
+            </div>
           </div>
 
           {/* Fish Audio Status */}

@@ -13,7 +13,6 @@ export const useElevenLabs = (apiKey?: string): UseElevenLabsOutput => {
   const [error, setError] = useState<string | null>(null);
   const [isSupported] = useState(() => !!apiKey);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
 
   const speak = async (text: string): Promise<void> => {
     if (!isSupported) {

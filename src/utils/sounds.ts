@@ -92,8 +92,6 @@ class SoundEffects {
   playEmote(emoteName: string) {
     if (!this.enabled || !this.audioContext) return;
 
-    const now = this.audioContext.currentTime;
-
     if (emoteName.includes('excit') || emoteName.includes('jump') || emoteName.includes('bounce')) {
       this.playExcitedSound();
     } else if (emoteName.includes('giggle') || emoteName.includes('laugh')) {

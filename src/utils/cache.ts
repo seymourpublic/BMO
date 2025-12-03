@@ -65,8 +65,10 @@ class ResponseCache {
     // Enforce max entries (LRU-style)
     if (this.cache.size >= this.MAX_ENTRIES) {
       const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-      console.log('💾 Cache full - removed oldest entry');
+      if (firstKey) {
+        this.cache.delete(firstKey);
+        console.log('💾 Cache full - removed oldest entry');
+      }
     }
 
     const entry: CacheEntry = {

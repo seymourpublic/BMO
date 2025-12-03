@@ -8,7 +8,7 @@ interface UseFishAudioOutput {
   error: string | null;
 }
 
-export const useFishAudio = (apiKey?: string): UseFishAudioOutput => {
+export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Check if backend is likely configured (we can't know for sure from frontend)

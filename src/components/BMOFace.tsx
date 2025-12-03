@@ -14,7 +14,8 @@ export const BMOFace: React.FC<BMOFaceProps> = ({ mood, isSpeaking = false, isLi
     excited: { leftY: 30, rightY: 30, size: 20 },
     thinking: { leftY: 38, rightY: 35, size: 14 },
     sad: { leftY: 40, rightY: 40, size: 14 },
-    surprised: { leftY: 28, rightY: 28, size: 22 }
+    surprised: { leftY: 28, rightY: 28, size: 22 },
+    confused: { leftY: 38, rightY: 32, size: 15 }
   };
 
   // Mouth configurations for different moods
@@ -23,7 +24,8 @@ export const BMOFace: React.FC<BMOFaceProps> = ({ mood, isSpeaking = false, isLi
     excited: { type: 'bigSmile', width: 90, height: 35, y: 68 },
     thinking: { type: 'line', width: 60, height: 3, y: 75 },
     sad: { type: 'frown', width: 70, height: 25, y: 75 },
-    surprised: { type: 'oval', width: 35, height: 45, y: 70 }
+    surprised: { type: 'oval', width: 35, height: 45, y: 70 },
+    confused: { type: 'line', width: 50, height: 3, y: 78 }
   };
 
   // Override mood when speaking or listening

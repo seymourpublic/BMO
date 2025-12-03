@@ -10,7 +10,7 @@ export interface FacePattern {
 }
 
 // Mood types
-export type Mood = 'happy' | 'excited' | 'thinking' | 'sad' | 'surprised';
+export type Mood = 'happy' | 'excited' | 'thinking' | 'sad' | 'surprised' | 'confused';
 
 // BMO API response
 export interface BMOResponse {
