@@ -23,7 +23,12 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
       console.log('🐟 Generating speech with Fish Audio (via backend)...');
 
       // Call our backend proxy instead of Fish Audio directly
-      const response = await fetch('http://localhost:3001/api/tts', {
+      // Call backend TTS endpoint
+      const API_URL = import.meta.env.PROD 
+        ? '/api/tts'  // Production: same server
+        : 'http://localhost:3001/api/tts';  // Development
+      
+      const response = await fetch(API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -2,12 +2,18 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// ES modules fix for __dirname
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;  // Railway sets PORT automatically
 
 // Backend response cache
 const responseCache = new Map();
@@ -43,7 +49,7 @@ setInterval(() => {
 
 // Enable CORS for frontend
 app.use(cors({
-  origin: 'http://localhost:3000'
+  origin: process.env.FRONTEND_URL || 'http://localhost:3000'
 }));
 
 // Parse JSON bodies
@@ -210,10 +216,19 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
+// Serve static files from dist folder (production)
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Serve index.html for all other routes (SPA support)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+});
+
 app.listen(PORT, () => {
   console.log('🎮 BMO Backend Server Started!');
   console.log(`📡 Listening on http://localhost:${PORT}`);
   console.log(`🔑 API Key loaded: ${!!process.env.ANTHROPIC_API_KEY}`);
+  console.log(`📁 Serving static files from: ${path.join(__dirname, 'dist')}`);
   console.log('');
   console.log('Ready to proxy requests to Anthropic API! 🚀');
 });
