@@ -47,14 +47,17 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-// Enable CORS for frontend
+// Enable CORS for Vercel frontend
 app.use(cors({
   origin: [
-    'http://localhost:3000',  // Local dev
-    'https://bmo-neon.vercel.app/',  // Production
-    /\.vercel\.app$/  // All Vercel preview deployments
-  ],
-  credentials: true
+    'http://localhost:3000',  // Local development
+    'http://localhost:5173',  // Vite dev server alternative port
+    process.env.FRONTEND_URL, // Production Vercel URL
+    /\.vercel\.app$/          // All Vercel preview deployments
+  ].filter(Boolean),          // Remove undefined values
+  credentials: true,
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
 // Parse JSON bodies
@@ -221,19 +224,14 @@ app.post('/api/tts', async (req, res) => {
   }
 });
 
-// Serve static files from dist folder (production)
-app.use(express.static(path.join(__dirname, 'dist')));
-
-// Serve index.html for all other routes (SPA support)
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
+// Note: Static files are served by Vercel, not this backend
+// This backend only handles API routes
 
 app.listen(PORT, () => {
   console.log('🎮 BMO Backend Server Started!');
-  console.log(`📡 Listening on http://localhost:${PORT}`);
+  console.log(`📡 Listening on port ${PORT}`);
   console.log(`🔑 API Key loaded: ${!!process.env.ANTHROPIC_API_KEY}`);
-  console.log(`📁 Serving static files from: ${path.join(__dirname, 'dist')}`);
+  console.log(`🌐 CORS enabled for: ${process.env.FRONTEND_URL || 'localhost'}`);
   console.log('');
   console.log('Ready to proxy requests to Anthropic API! 🚀');
 });

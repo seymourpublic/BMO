@@ -22,10 +22,14 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
 
       console.log('🐟 Generating speech with Fish Audio (via backend)...');
 
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-
-const response = await fetch(`${API_URL}/api/tts`, {
-  method: "POST",
+      // Call our backend proxy instead of Fish Audio directly
+      // Call backend TTS endpoint
+      // Backend URL from environment variable (Vercel) or localhost (dev)
+      const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+      const API_URL = `${API_BASE_URL}/api/tts`;
+      
+      const response = await fetch(API_URL, {
+        method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },

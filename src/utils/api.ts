@@ -16,13 +16,11 @@ export const sendMessageToClaude = async (
       return cachedResponse;
     }
 
-    // Call our backend proxy instead of Anthropic directly
-    // This avoids CORS issues
-    // In production, same origin; in dev, localhost:3001
-const API_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-
-const response = await fetch(`${API_URL}/api/chat`, {
-  method: "POST",
+    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+    const API_URL = `${API_BASE_URL}/api/chat`;
+    
+    const response = await fetch(API_URL, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
@@ -34,8 +32,7 @@ const response = await fetch(`${API_URL}/api/chat`, {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      
-      // Provide helpful error messages
+    
       if (response.status === 401) {
         throw new Error('❌ API Key is invalid! Check your backend .env file.');
       } else if (response.status === 429) {
