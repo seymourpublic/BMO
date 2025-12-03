@@ -51,7 +51,7 @@ setInterval(() => {
 app.use(cors({
   origin: [
     'http://localhost:3000',  // Local dev
-    'https://your-app.vercel.app',  // Production
+    'https://bmo-neon.vercel.app/',  // Production
     /\.vercel\.app$/  // All Vercel preview deployments
   ],
   credentials: true
