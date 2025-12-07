@@ -1,7 +1,7 @@
 {
   "name": "bmo-companion",
   "version": "1.0.0",
-  "description": "BMO from Adventure Time is an AI-powered web companion",
+  "description": "BMO from Adventure Time as an AI-powered web companion",
   "type": "module",
   "scripts": {
     "dev": "vite",

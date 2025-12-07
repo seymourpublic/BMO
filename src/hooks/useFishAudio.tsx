@@ -51,6 +51,13 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
       const audio = new Audio(audioUrl);
       audioRef.current = audio;
 
+      // iOS requires explicit load before play
+      audio.load();
+      
+      // iOS-specific: Set playsinline to prevent fullscreen video
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('webkit-playsinline', 'true');
+
       audio.onended = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
@@ -65,8 +72,18 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
         audioRef.current = null;
       };
 
-      await audio.play();
-      console.log('✅ Playing BMO voice from Fish Audio!');
+      // iOS needs a small delay after load
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      try {
+        await audio.play();
+        console.log('✅ Playing BMO voice from Fish Audio!');
+      } catch (playError) {
+        console.error('Play error (iOS might block):', playError);
+        // Fallback: user might need to tap again
+        setError('Tap to enable audio');
+        setIsSpeaking(false);
+      }
 
     } catch (err) {
       console.error('Fish Audio error:', err);

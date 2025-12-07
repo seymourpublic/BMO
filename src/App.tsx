@@ -7,6 +7,7 @@ import { useFishAudio } from './hooks/useFishAudio';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { soundEffects } from './utils/sounds';
 import { bmoSongs, SPECIAL_SONG_LYRICS, SPECIAL_SONG_TRIGGERS } from './utils/songs';
+import { unlockIOSAudio } from './utils/iosAudio';
 import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import './App.css';
 
@@ -336,14 +337,20 @@ const App: React.FC = () => {
     soundEffects.playButtonClick();
   };
 
-  // Handle start button - request permissions and initialize audio
+  // Handle start button - request permissions and initialize audio (iOS compatible)
   const handleStart = async () => {
     try {
-      // Initialize all audio systems first (requires user interaction)
+      console.log('🎮 Starting BMO...');
+      
+      // iOS-specific unlock (must be first, during user interaction)
+      await unlockIOSAudio();
+      
+      // Initialize all audio systems
       await soundEffects.initialize();
       await bmoSongs.initialize();
       
-      // Play a button click to confirm audio is working
+      // Play a button click to test audio
+      await new Promise(resolve => setTimeout(resolve, 100));
       soundEffects.playButtonClick();
       
       // Request microphone permission upfront (if supported)
@@ -357,11 +364,12 @@ const App: React.FC = () => {
         }
       }
       
-      // Wait a moment for audio to be ready
-      await new Promise(resolve => setTimeout(resolve, 100));
+      // Wait for audio to be fully ready
+      await new Promise(resolve => setTimeout(resolve, 300));
       
       // Set as started (triggers greeting)
       setIsStarted(true);
+      console.log('✅ BMO started successfully');
     } catch (error) {
       console.error('Initialization error:', error);
       // Still start even if something failed
@@ -408,6 +416,19 @@ const App: React.FC = () => {
                   <p className="text-[#8ee4d4] text-xs mt-1">Hear BMO's voice and songs</p>
                 </div>
               </div>
+              
+              {/* iOS-specific warning */}
+              {/iPad|iPhone|iPod/.test(navigator.userAgent) && (
+                <div className="flex items-start gap-3 bg-orange-500/20 p-3 rounded-lg border border-orange-500/30">
+                  <span className="text-2xl">📱</span>
+                  <div>
+                    <p className="text-orange-200 font-bold text-xs">iOS Users</p>
+                    <p className="text-orange-100 text-xs mt-1">
+                      Make sure ringer switch is ON and volume is up!
+                    </p>
+                  </div>
+                </div>
+              )}
               
               <div className="mt-4 pt-4 border-t border-[#8ee4d4]/20">
                 <p className="text-[#8ee4d4] text-xs text-center">
