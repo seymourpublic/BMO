@@ -19,8 +19,10 @@ const App: React.FC = () => {
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const [showMusicNotes, setShowMusicNotes] = useState<boolean>(false);
   const [isStarted, setIsStarted] = useState<boolean>(false);  // Track if user clicked start
+  const [needsAudioUnlock, setNeedsAudioUnlock] = useState<boolean>(false);  // Track if audio needs unlock
   const inputRef = useRef<HTMLInputElement>(null);
   const hasPlayedGreeting = useRef<boolean>(false);  // Track if greeting has played
+  const audioUnlocked = useRef<boolean>(false);  // Track if audio context is unlocked
 
   // Voice hooks - Fish Audio with actual BMO voice!
   // API key is on backend now (no CORS issues!)
@@ -51,31 +53,45 @@ const App: React.FC = () => {
     if (!isStarted) return;  // Only play after user clicks start
     
     const playGreeting = async () => {
-      // Prevent multiple plays (React Strict Mode can cause double execution)
+      // Prevent multiple plays
       if (hasPlayedGreeting.current) return;
       hasPlayedGreeting.current = true;
       
       // Wait a moment for everything to load
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // Show music notes
-      setShowMusicNotes(true);
-      
-      // Play the melody first
-      setMood('excited');
-      await bmoSongs.playHelloFriendMelody();
-      
-      // Then speak "Hello friend!" with singing voice
-      if (ttsSupported) {
-        await speak("♪ Hello friend! ♪");
+      try {
+        // Show music notes
+        setShowMusicNotes(true);
+        
+        // Play the melody first
+        setMood('excited');
+        await bmoSongs.playHelloFriendMelody();
+        
+        // Then speak "Hello friend!" with singing voice
+        if (ttsSupported && voiceEnabled) {
+          try {
+            await speak("♪ Hello friend! ♪");
+          } catch (speakError) {
+            console.warn('Voice greeting failed:', speakError);
+            // Show unlock banner if audio fails
+            setNeedsAudioUnlock(true);
+          }
+        }
+        
+        setMood('happy');
+        setShowMusicNotes(false);
+      } catch (error) {
+        console.error('Greeting error:', error);
+        setMood('happy');
+        setShowMusicNotes(false);
+        // Show unlock banner
+        setNeedsAudioUnlock(true);
       }
-      
-      setMood('happy');
-      setShowMusicNotes(false);
     };
     
     playGreeting();
-  }, [isStarted, ttsSupported, speak]); // Play when user starts
+  }, [isStarted, ttsSupported, voiceEnabled, speak]); // Play when user starts
 
   // Send message to BMO - wrapped in useCallback to prevent recreating
   const sendToBMO = useCallback(async (userMessage: string) => {
@@ -343,15 +359,25 @@ const App: React.FC = () => {
       console.log('🎮 Starting BMO...');
       
       // iOS-specific unlock (must be first, during user interaction)
-      await unlockIOSAudio();
+      const unlocked = await unlockIOSAudio();
+      console.log('iOS unlock result:', unlocked);
       
       // Initialize all audio systems
       await soundEffects.initialize();
       await bmoSongs.initialize();
       
+      // Mark as unlocked
+      audioUnlocked.current = true;
+      
       // Play a button click to test audio
-      await new Promise(resolve => setTimeout(resolve, 100));
-      soundEffects.playButtonClick();
+      await new Promise(resolve => setTimeout(resolve, 150));
+      
+      try {
+        soundEffects.playButtonClick();
+        console.log('✅ Button click played');
+      } catch (clickError) {
+        console.warn('Button click failed:', clickError);
+      }
       
       // Request microphone permission upfront (if supported)
       if (sttSupported) {
@@ -377,8 +403,97 @@ const App: React.FC = () => {
     }
   };
 
+  // Global click handler to unlock audio if needed
+  const handleGlobalClick = async () => {
+    if (!audioUnlocked.current && isStarted) {
+      console.log('🔄 Attempting to unlock audio on tap...');
+      try {
+        await unlockIOSAudio();
+        await soundEffects.initialize();
+        await bmoSongs.initialize();
+        
+        // Test it works
+        soundEffects.playButtonClick();
+        
+        audioUnlocked.current = true;
+        setNeedsAudioUnlock(false);
+        
+        // Retry greeting
+        if (hasPlayedGreeting.current && ttsSupported && voiceEnabled) {
+          try {
+            await speak("♪ Hello friend! ♪");
+          } catch (e) {
+            console.warn('Retry greeting failed:', e);
+          }
+        }
+        
+        console.log('✅ Audio unlocked on tap!');
+      } catch (error) {
+        console.error('Failed to unlock on tap:', error);
+      }
+    }
+  };
+
+  // Manual retry for greeting
+  const retryGreeting = async () => {
+    try {
+      setNeedsAudioUnlock(false);
+      setShowMusicNotes(true);
+      setMood('excited');
+      
+      await unlockIOSAudio();
+      await soundEffects.initialize();
+      await bmoSongs.initialize();
+      
+      soundEffects.playButtonClick();
+      await new Promise(r => setTimeout(r, 200));
+      
+      await bmoSongs.playHelloFriendMelody();
+      
+      if (ttsSupported && voiceEnabled) {
+        await speak("♪ Hello friend! ♪");
+      }
+      
+      audioUnlocked.current = true;
+      setMood('happy');
+      setShowMusicNotes(false);
+    } catch (error) {
+      console.error('Retry failed:', error);
+      setMood('happy');
+      setShowMusicNotes(false);
+      setNeedsAudioUnlock(true);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center p-5 relative overflow-hidden font-orbitron">
+    <div 
+      className="min-h-screen bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center p-5 relative overflow-hidden font-orbitron"
+      onClick={handleGlobalClick}
+    >
+      {/* Audio Unlock Banner (iOS fallback) */}
+      {needsAudioUnlock && isStarted && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-sm w-full px-4">
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4 rounded-2xl shadow-2xl border-2 border-orange-400">
+            <div className="flex items-start gap-3">
+              <span className="text-3xl">🔊</span>
+              <div className="flex-1">
+                <p className="font-press-start text-xs mb-2">Audio Blocked</p>
+                <p className="text-xs mb-3 opacity-90">iOS requires a tap to play audio</p>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    retryGreeting();
+                  }}
+                  className="w-full bg-white text-orange-600 px-4 py-2 rounded-lg font-press-start text-xs hover:bg-orange-50 active:scale-95 transition-all shadow-md"
+                >
+                  🎵 Enable Audio
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Start Screen */}
       {!isStarted && (
         <div className="fixed inset-0 bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center z-50">
