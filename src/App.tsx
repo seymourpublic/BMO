@@ -17,7 +17,9 @@ const App: React.FC = () => {
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const [showMusicNotes, setShowMusicNotes] = useState<boolean>(false);
+  const [isStarted, setIsStarted] = useState<boolean>(false);  // Track if user clicked start
   const inputRef = useRef<HTMLInputElement>(null);
+  const hasPlayedGreeting = useRef<boolean>(false);  // Track if greeting has played
 
   // Voice hooks - Fish Audio with actual BMO voice!
   // API key is on backend now (no CORS issues!)
@@ -43,11 +45,17 @@ const App: React.FC = () => {
     inputRef.current?.focus();
   }, []);
 
-  // Play greeting song on first load
+  // Play greeting song after user starts (requires user interaction)
   useEffect(() => {
+    if (!isStarted) return;  // Only play after user clicks start
+    
     const playGreeting = async () => {
+      // Prevent multiple plays (React Strict Mode can cause double execution)
+      if (hasPlayedGreeting.current) return;
+      hasPlayedGreeting.current = true;
+      
       // Wait a moment for everything to load
-      await new Promise(resolve => setTimeout(resolve, 800));
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       // Show music notes
       setShowMusicNotes(true);
@@ -66,7 +74,7 @@ const App: React.FC = () => {
     };
     
     playGreeting();
-  }, []); // Empty deps = only on mount
+  }, [isStarted, ttsSupported, speak]); // Play when user starts
 
   // Send message to BMO - wrapped in useCallback to prevent recreating
   const sendToBMO = useCallback(async (userMessage: string) => {
@@ -328,8 +336,114 @@ const App: React.FC = () => {
     soundEffects.playButtonClick();
   };
 
+  // Handle start button - request permissions and initialize audio
+  const handleStart = async () => {
+    try {
+      // Initialize all audio systems first (requires user interaction)
+      await soundEffects.initialize();
+      await bmoSongs.initialize();
+      
+      // Play a button click to confirm audio is working
+      soundEffects.playButtonClick();
+      
+      // Request microphone permission upfront (if supported)
+      if (sttSupported) {
+        try {
+          await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log('🎤 Microphone permission granted');
+        } catch (micError) {
+          console.warn('Microphone permission denied:', micError);
+          // Continue anyway - user can still type
+        }
+      }
+      
+      // Wait a moment for audio to be ready
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Set as started (triggers greeting)
+      setIsStarted(true);
+    } catch (error) {
+      console.error('Initialization error:', error);
+      // Still start even if something failed
+      setIsStarted(true);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center p-5 relative overflow-hidden font-orbitron">
+      {/* Start Screen */}
+      {!isStarted && (
+        <div className="fixed inset-0 bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center z-50">
+          <div className="text-center space-y-8 max-w-md px-6 animate-fade-in">
+            {/* BMO Preview - Animated */}
+            <div className="relative">
+              <div className="text-9xl animate-bounce-slow">🎮</div>
+              <div className="absolute -inset-4 bg-[#8ee4d4]/20 rounded-full blur-xl animate-pulse" />
+            </div>
+            
+            {/* Title with Glow Effect */}
+            <div className="space-y-3">
+              <h1 className="text-6xl font-press-start text-white mb-3 drop-shadow-[0_0_20px_rgba(142,228,212,0.5)] animate-pulse">
+                BMO
+              </h1>
+              <p className="text-base text-[#8ee4d4] font-press-start text-xs leading-relaxed">
+                Your AI Friend from Adventure Time
+              </p>
+            </div>
+            
+            {/* Permissions Info - More Visual */}
+            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-6 space-y-4 text-left border-2 border-[#8ee4d4]/30">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🎤</span>
+                <div>
+                  <p className="text-white font-bold text-sm">Microphone Access</p>
+                  <p className="text-[#8ee4d4] text-xs mt-1">Talk to BMO with your voice</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🔊</span>
+                <div>
+                  <p className="text-white font-bold text-sm">Audio Playback</p>
+                  <p className="text-[#8ee4d4] text-xs mt-1">Hear BMO's voice and songs</p>
+                </div>
+              </div>
+              
+              <div className="mt-4 pt-4 border-t border-[#8ee4d4]/20">
+                <p className="text-[#8ee4d4] text-xs text-center">
+                  ✨ Click below to grant permissions & wake up BMO! ✨
+                </p>
+              </div>
+            </div>
+            
+            {/* Start Button - Big and Inviting */}
+            <button
+              onClick={handleStart}
+              className="group w-full py-5 px-8 bg-gradient-to-br from-[#2ecc71] via-[#27ae60] to-[#229954] text-white rounded-2xl font-press-start text-base shadow-[0_8px_0_#1e8449] hover:shadow-[0_6px_0_#1e8449] hover:translate-y-0.5 active:translate-y-1 active:shadow-[0_3px_0_#1e8449] transition-all duration-150 uppercase border-2 border-[#27ae60] hover:border-[#2ecc71] relative overflow-hidden"
+            >
+              <span className="relative z-10 flex items-center justify-center gap-3">
+                <span className="text-2xl group-hover:animate-bounce">🎮</span>
+                <span>Wake Up BMO!</span>
+                <span className="text-2xl group-hover:animate-bounce animation-delay-150">🎵</span>
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
+            </button>
+            
+            {/* Footer Notes */}
+            <div className="space-y-2">
+              <p className="text-[#8ee4d4] text-xs opacity-90 flex items-center justify-center gap-2">
+                <span>🎵</span>
+                <span>Best experienced with sound on!</span>
+                <span>🎵</span>
+              </p>
+              <p className="text-white/50 text-xs">
+                Permissions are only used for voice features
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {/* Animated background particles */}
       <div className="fixed inset-0 opacity-20 pointer-events-none animate-float">
         <div className="absolute w-2 h-2 bg-white rounded-full top-[20%] left-[20%]" />

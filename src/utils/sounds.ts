@@ -6,10 +6,27 @@ class SoundEffects {
   private enabled: boolean = true;
 
   constructor() {
-    // Initialize on first use to avoid issues
+    // Don't initialize immediately - wait for user interaction
+  }
+
+  // Initialize audio context (call after user interaction)
+  async initialize() {
+    if (this.audioContext) {
+      // Resume if suspended
+      if (this.audioContext.state === 'suspended') {
+        await this.audioContext.resume();
+      }
+      return;
+    }
+    
     if (typeof window !== 'undefined') {
       try {
         this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+        // Resume immediately in case it starts suspended
+        if (this.audioContext.state === 'suspended') {
+          await this.audioContext.resume();
+        }
+        console.log('🔊 Audio context initialized');
       } catch (error) {
         console.warn('Web Audio API not supported:', error);
       }
