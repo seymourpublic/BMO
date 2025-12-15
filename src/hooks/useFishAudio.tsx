@@ -6,14 +6,29 @@ interface UseFishAudioOutput {
   stop: () => void;
   isSupported: boolean;
   error: string | null;
+  prewarmAudio: () => void;  // NEW: Prewarm audio for iOS
 }
 
 export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Check if backend is likely configured (we can't know for sure from frontend)
-  const [isSupported] = useState(() => true); // Always try - backend will handle errors
+  const [isSupported] = useState(() => true);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioPoolRef = useRef<HTMLAudioElement[]>([]);  // Pool for iOS
+
+  // Prewarm audio elements (MUST call during user interaction!)
+  const prewarmAudio = () => {
+    console.log('🔥 Prewarming audio elements for iOS...');
+    // Create 3 audio elements during user gesture
+    // iOS allows these to play later because created during interaction
+    for (let i = 0; i < 3; i++) {
+      const audio = new Audio();
+      audio.setAttribute('playsinline', 'true');
+      audio.setAttribute('webkit-playsinline', 'true');
+      audioPoolRef.current.push(audio);
+    }
+    console.log(`✅ ${audioPoolRef.current.length} audio elements ready`);
+  };
 
   const speak = async (text: string): Promise<void> => {
     try {
@@ -47,20 +62,32 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
       const audioBlob = await response.blob();
       const audioUrl = URL.createObjectURL(audioBlob);
 
-      // Create and play audio
-      const audio = new Audio(audioUrl);
+      // Use prewarmed audio element if available (iOS compatibility)
+      let audio: HTMLAudioElement;
+      if (audioPoolRef.current.length > 0) {
+        audio = audioPoolRef.current.pop()!;
+        console.log('🎵 Using prewarmed audio element');
+      } else {
+        audio = new Audio();
+        console.log('⚠️ Creating new audio (may fail on iOS)');
+      }
+      
+      audio.src = audioUrl;
       audioRef.current = audio;
 
-      // iOS requires explicit load before play
+      // iOS requires explicit load
       audio.load();
       
-      // iOS-specific: Set playsinline to prevent fullscreen video
+      // Set attributes (just in case)
       audio.setAttribute('playsinline', 'true');
       audio.setAttribute('webkit-playsinline', 'true');
 
       audio.onended = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
+        // Return to pool
+        audio.src = '';
+        audioPoolRef.current.push(audio);
         audioRef.current = null;
       };
 
@@ -69,18 +96,19 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
         setError('Failed to play audio');
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
+        audio.src = '';
+        audioPoolRef.current.push(audio);
         audioRef.current = null;
       };
 
       // iOS needs a small delay after load
-      await new Promise(resolve => setTimeout(resolve, 50));
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       try {
         await audio.play();
         console.log('✅ Playing BMO voice from Fish Audio!');
       } catch (playError) {
         console.error('Play error (iOS might block):', playError);
-        // Fallback: user might need to tap again
         setError('Tap to enable audio');
         setIsSpeaking(false);
       }
@@ -105,6 +133,7 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
     isSpeaking,
     stop,
     isSupported,
-    error
+    error,
+    prewarmAudio  // NEW: Call this during user interaction!
   };
 };

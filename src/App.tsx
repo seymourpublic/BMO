@@ -31,7 +31,8 @@ const App: React.FC = () => {
     isSpeaking, 
     stop: stopSpeaking, 
     isSupported: ttsSupported,
-    error: voiceError
+    error: voiceError,
+    prewarmAudio  // NEW: Must call during user interaction!
   } = useFishAudio();
   const {
     transcript,
@@ -358,6 +359,9 @@ const App: React.FC = () => {
     try {
       console.log('🎮 Starting BMO...');
       
+      // CRITICAL FOR iOS: Prewarm audio elements FIRST (during user gesture)
+      prewarmAudio();
+      
       // iOS-specific unlock (must be first, during user interaction)
       const unlocked = await unlockIOSAudio();
       console.log('iOS unlock result:', unlocked);
@@ -440,6 +444,9 @@ const App: React.FC = () => {
       setNeedsAudioUnlock(false);
       setShowMusicNotes(true);
       setMood('excited');
+      
+      // CRITICAL: Prewarm audio elements (during user gesture)
+      prewarmAudio();
       
       await unlockIOSAudio();
       await soundEffects.initialize();
