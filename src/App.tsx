@@ -652,6 +652,13 @@ const App: React.FC = () => {
               {isListening ? '🎤 LISTENING...' : isSpeaking ? '🔊 SPEAKING...' : MOOD_TEXTS[mood]}
             </div>
             
+            {/* Listening Tip (iOS) */}
+            {isListening && /iPad|iPhone|iPod/.test(navigator.userAgent) && (
+              <div className="text-center text-[10px] text-[#2a5d5f]/70 mt-1">
+                Speak clearly and wait for response
+              </div>
+            )}
+            
             {/* Voice Error Display */}
             {speechError && (
               <div className="text-center text-xs text-red-600 mt-1">
@@ -798,7 +805,7 @@ const App: React.FC = () => {
               </p>
             </div>
           )}
-          {voiceError && (
+          {voiceError && !isSpeaking && (
             <div className="mb-4 p-3 bg-red-100 border-2 border-red-400 rounded-lg">
               <p className="text-xs text-red-800 font-bold">Voice Error:</p>
               <p className="text-xs text-red-700 mt-1">{voiceError}</p>

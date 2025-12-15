@@ -29,11 +29,19 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     
     const recognition = new SpeechRecognition();
     
-    // Configuration for BMO - IMPROVED!
+    // Configuration for BMO - IMPROVED for better pickup!
     recognition.continuous = true;  // Keep listening (don't stop on pause)
     recognition.interimResults = true;  // Show results as user speaks
     recognition.lang = 'en-US';  // English
     recognition.maxAlternatives = 1;
+    
+    // iOS-specific: These help with pickup
+    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
+      console.log('📱 iOS detected - optimizing speech recognition');
+      // iOS works better with slightly different settings
+      recognition.continuous = false;  // iOS prefers non-continuous
+      recognition.interimResults = false;  // iOS prefers final results only
+    }
 
     // Event handlers
     recognition.onstart = () => {
@@ -76,8 +84,25 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     };
 
     recognition.onend = () => {
-      setIsListening(false);
       console.log('🎤 Listening stopped');
+      
+      // iOS-specific: Auto-restart if user is still in listening mode
+      // iOS speech recognition stops after each utterance
+      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && isListening) {
+        console.log('📱 iOS: Auto-restarting recognition...');
+        setTimeout(() => {
+          if (recognitionRef.current && isListening) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.warn('Could not restart recognition:', e);
+              setIsListening(false);
+            }
+          }
+        }, 100);
+      } else {
+        setIsListening(false);
+      }
     };
 
     recognitionRef.current = recognition;

@@ -107,10 +107,15 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
       try {
         await audio.play();
         console.log('✅ Playing BMO voice from Fish Audio!');
+        setError(null);  // Clear any previous errors on success
       } catch (playError) {
         console.error('Play error (iOS might block):', playError);
-        setError('Tap to enable audio');
+        setError('Failed to play audio');
         setIsSpeaking(false);
+        // Return audio to pool on error
+        audio.src = '';
+        audioPoolRef.current.push(audio);
+        audioRef.current = null;
       }
 
     } catch (err) {
