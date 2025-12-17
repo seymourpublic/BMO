@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BMOFace } from './components/BMOFace';
 import { LoginScreen } from './components/LoginScreen';
 import { ConversationHistory } from './components/ConversationHistory';
-import { sendMessageToClaude, preloadCommonPhrases } from './utils/api';
+import { sendMessageToClaude } from './utils/api';
 import { MOOD_TEXTS, STORY_PROMPTS } from './utils/constants';
 import { Message, Mood } from './types';
 import { useFishAudio } from './hooks/useFishAudio';
@@ -54,7 +54,8 @@ const App: React.FC = () => {
     startListening,
     stopListening,
     resetTranscript,
-    isSupported: sttSupported
+    isSupported: sttSupported,
+    error: speechError
   } = useSpeechRecognition();
 
   // Check for existing user on mount
@@ -129,22 +130,7 @@ const App: React.FC = () => {
     playGreeting();
   }, [isStarted, ttsSupported, voiceEnabled, speak]); // Play when user starts
 
-  // OPTIMIZATION: Preload common TTS phrases after greeting completes
-  useEffect(() => {
-    if (isStarted) {
-      // Wait 3 seconds after start to not interfere with greeting
-      const preloadTimer = setTimeout(() => {
-        console.log('🔄 Starting TTS preload...');
-        preloadCommonPhrases().catch(err => 
-          console.log('⚠️ TTS preloading failed (non-critical):', err)
-        );
-      }, 3000);
-
-      return () => clearTimeout(preloadTimer);
-    }
-  }, [isStarted]);
-
-  // OPTIMIZED: Send message to BMO with parallel TTS generation
+  // Send message to BMO - wrapped in useCallback to prevent recreating
   const sendToBMO = useCallback(async (userMessage: string) => {
     try {
       setIsTyping(true);
@@ -191,18 +177,15 @@ const App: React.FC = () => {
         { role: 'user', content: userMessage }
       ];
 
-      // OPTIMIZATION: sendMessageToClaude now trims internally to 4 messages
-      // No need to trim here - let the API layer handle it for better cache hits
-      const bmoResponse = await sendMessageToClaude(newHistory, currentUser?.id);
+      // Trim conversation history to last 6 messages (3 exchanges) for speed
+      // This reduces API payload size significantly
+      const trimmedHistory = newHistory.slice(-6);
+
+      // Get BMO's response with trimmed history
+      const bmoResponse = await sendMessageToClaude(trimmedHistory);
 
       // Extract emotes and clean text for speech
       const { cleanText, emotes } = extractEmotes(bmoResponse);
-
-      // OPTIMIZATION: Start TTS generation IMMEDIATELY (don't await yet)
-      // This parallelizes the TTS request with UI updates and emote animations
-      const ttsPromise = (voiceEnabled && ttsSupported) 
-        ? speak(cleanText) 
-        : Promise.resolve();
 
       // Update conversation history with FULL response (including emotes)
       const updatedHistory: Message[] = [
@@ -211,27 +194,22 @@ const App: React.FC = () => {
       ];
       setConversationHistory(updatedHistory);
 
-      // Save to user's conversation history if logged in
-      if (currentUser) {
-        addMessageToHistory(currentUser.id, 'user', userMessage);
-        addMessageToHistory(currentUser.id, 'assistant', bmoResponse);
-      }
+      // Add BMO's response to messages (FULL text with emotes for display)
       
-      // Show response immediately (don't wait for TTS)
       setIsTyping(false);
       
       // Play receive sound
       soundEffects.playReceive();
       
-      // OPTIMIZATION: Play emotes while TTS is loading in background
-      // By the time emotes finish, TTS should be ready or close
+      // Play emote animations BEFORE speaking
       if (emotes.length > 0) {
         await playEmoteSequence(emotes);
       }
       
-      // Now wait for TTS to complete (if it hasn't already)
-      // This usually completes during emote sequence, so there's minimal wait
-      await ttsPromise;
+      // Speak the CLEAN response (without asterisks)
+      if (voiceEnabled && ttsSupported) {
+        await speak(cleanText);
+      }
       
       // Randomly change mood after responding
       const moods: Mood[] = ['happy', 'excited', 'surprised'];
@@ -251,7 +229,7 @@ const App: React.FC = () => {
       }
       setMood('sad');
     }
-  }, [conversationHistory, voiceEnabled, ttsSupported, speak, currentUser]);
+  }, [conversationHistory, voiceEnabled, ttsSupported, speak]);
 
   // Extract emotes from text (like *excited*, *jumps*, etc.)
   const extractEmotes = (text: string): { cleanText: string; emotes: string[] } => {
@@ -373,80 +351,51 @@ const App: React.FC = () => {
     sendToBMO(userMessage);
   };
 
-  // Handle key press (Enter to send)
+  // Handle Enter key
   const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && !isTyping && inputValue.trim() !== '') {
+    if (e.key === 'Enter') {
       handleSendMessage();
     }
   };
 
-  // Toggle voice listening
-  const toggleListening = async () => {
+  // Quick action: Ask for story
+  const askForStory = () => {
+    const randomPrompt = STORY_PROMPTS[Math.floor(Math.random() * STORY_PROMPTS.length)];
+    
+    // Play button click sound
+    soundEffects.playButtonClick();
+    
+    sendToBMO(randomPrompt);
+  };
+
+  // Toggle voice input
+  const toggleListening = () => {
     if (isListening) {
       stopListening();
+      soundEffects.playVoiceStop();
     } else {
-      // Stop any ongoing speech before listening
-      if (isSpeaking) {
-        stopSpeaking();
-      }
-      await startListening();
+      startListening();
+      soundEffects.playVoiceStart();
     }
   };
 
   // Toggle voice output
   const toggleVoice = () => {
-    const newVoiceState = !voiceEnabled;
-    setVoiceEnabled(newVoiceState);
-    
-    // Save preference if user is logged in
-    if (currentUser) {
-      const userData = loadUserData(currentUser.id);
-      if (userData) {
-        userData.preferences.voiceEnabled = newVoiceState;
-        localStorage.setItem(`bmo_user_${currentUser.id}`, JSON.stringify(userData));
-      }
-    }
-    
-    // Stop speaking if disabling voice
-    if (!newVoiceState && isSpeaking) {
+    if (voiceEnabled) {
       stopSpeaking();
     }
-  };
-
-  // Ask for story
-  const askForStory = () => {
-    const randomPrompt = STORY_PROMPTS[Math.floor(Math.random() * STORY_PROMPTS.length)];
-    setInputValue(randomPrompt);
-    sendToBMO(randomPrompt);
-    soundEffects.playSend();
-  };
-
-  // Handle user login
-  const handleLogin = (name: string) => {
-    const user = createUser(name);
-    setCurrentUser(user);
-    console.log('👤 User logged in:', user.name);
+    setVoiceEnabled(!voiceEnabled);
     
-    // Initialize audio after user interaction
-    handleStart();
+    // Play button click sound
+    soundEffects.playButtonClick();
   };
 
-  // Handle user logout
-  const handleLogout = () => {
-    if (currentUser) {
-      logout();
-      setCurrentUser(null);
-      setConversationHistory([]);
-      console.log('👤 User logged out');
-    }
-  };
-
-  // Start BMO (requires user interaction for audio)
+  // Handle start button - request permissions and initialize audio (iOS compatible)
   const handleStart = async () => {
     try {
       console.log('🎮 Starting BMO...');
       
-      // CRITICAL: Prewarm audio elements during user gesture
+      // CRITICAL FOR iOS: Prewarm audio elements FIRST (during user gesture)
       prewarmAudio();
       
       // iOS-specific unlock (must be first, during user interaction)
@@ -549,125 +498,221 @@ const App: React.FC = () => {
       }
       
       audioUnlocked.current = true;
-      setShowMusicNotes(false);
       setMood('happy');
-    } catch (error) {
-      console.error('Manual greeting retry failed:', error);
-      setNeedsAudioUnlock(true);
       setShowMusicNotes(false);
-      setMood('sad');
+    } catch (error) {
+      console.error('Retry failed:', error);
+      setMood('happy');
+      setShowMusicNotes(false);
+      setNeedsAudioUnlock(true);
     }
   };
-
-  // Toggle conversation history
-  const toggleHistory = () => {
-    setShowHistory(!showHistory);
-  };
-
-  // Clear conversation history
-  const handleClearHistory = () => {
-    if (currentUser && window.confirm('Clear all conversation history? This cannot be undone.')) {
-      clearConversationHistory(currentUser.id);
-      setConversationHistory([]);
-      console.log('🗑️ Conversation history cleared');
-    }
-  };
-
-  // Show login screen if not started
-  if (!currentUser) {
-    return <LoginScreen onLogin={handleLogin} />;
-  }
 
   return (
     <div 
-      className="min-h-screen bg-gradient-to-br from-[#8ee4d4] via-[#5dcdce] to-[#4fb8b9] flex items-center justify-center p-4 font-sans"
+      className="min-h-screen bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center p-5 relative overflow-hidden font-orbitron"
       onClick={handleGlobalClick}
     >
-      {/* Floating music notes animation */}
-      {showMusicNotes && (
-        <div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">
-          {[...Array(12)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute animate-float-note text-4xl opacity-80"
-              style={{
-                left: `${Math.random() * 100}%`,
-                animationDelay: `${i * 0.3}s`,
-                animationDuration: `${3 + Math.random() * 2}s`
-              }}
-            >
-              ♪
+      {/* Audio Unlock Banner (iOS fallback) */}
+      {needsAudioUnlock && isStarted && (
+        <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-sm w-full px-4">
+          <div className="bg-gradient-to-r from-orange-500 to-orange-600 text-white p-4 rounded-2xl shadow-2xl border-2 border-orange-400">
+            <div className="flex items-start gap-3">
+              <span className="text-3xl">🔊</span>
+              <div className="flex-1">
+                <p className="font-press-start text-xs mb-2">Audio Blocked</p>
+                <p className="text-xs mb-3 opacity-90">iOS requires a tap to play audio</p>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    retryGreeting();
+                  }}
+                  className="w-full bg-white text-orange-600 px-4 py-2 rounded-lg font-press-start text-xs hover:bg-orange-50 active:scale-95 transition-all shadow-md"
+                >
+                  🎵 Enable Audio
+                </button>
+              </div>
             </div>
-          ))}
+          </div>
+        </div>
+      )}
+      
+      {/* Start Screen */}
+      {!isStarted && (
+        <div className="fixed inset-0 bg-gradient-to-br from-[#1a5f7a] via-[#2d8a9e] to-[#57c4d8] flex items-center justify-center z-50">
+          <div className="text-center space-y-8 max-w-md px-6 animate-fade-in">
+            {/* BMO Preview - Animated */}
+            <div className="relative">
+              <div className="text-9xl animate-bounce-slow">🎮</div>
+              <div className="absolute -inset-4 bg-[#8ee4d4]/20 rounded-full blur-xl animate-pulse" />
+            </div>
+            
+            {/* Title with Glow Effect */}
+            <div className="space-y-3">
+              <h1 className="text-6xl font-press-start text-white mb-3 drop-shadow-[0_0_20px_rgba(142,228,212,0.5)] animate-pulse">
+                BMO
+              </h1>
+              <p className="text-base text-[#8ee4d4] font-press-start text-xs leading-relaxed">
+                Your AI Friend from Adventure Time
+              </p>
+            </div>
+            
+            {/* Permissions Info - More Visual */}
+            <div className="bg-black/40 backdrop-blur-sm rounded-2xl p-6 space-y-4 text-left border-2 border-[#8ee4d4]/30">
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🎤</span>
+                <div>
+                  <p className="text-white font-bold text-sm">Microphone Access</p>
+                  <p className="text-[#8ee4d4] text-xs mt-1">Talk to BMO with your voice</p>
+                </div>
+              </div>
+              
+              <div className="flex items-start gap-3">
+                <span className="text-3xl">🔊</span>
+                <div>
+                  <p className="text-white font-bold text-sm">Audio Playback</p>
+                  <p className="text-[#8ee4d4] text-xs mt-1">Hear BMO's voice and songs</p>
+                </div>
+              </div>
+              
+              {/* iOS-specific warning */}
+              {/iPad|iPhone|iPod/.test(navigator.userAgent) && (
+                <div className="flex items-start gap-3 bg-orange-500/20 p-3 rounded-lg border border-orange-500/30">
+                  <span className="text-2xl">📱</span>
+                  <div>
+                    <p className="text-orange-200 font-bold text-xs">iOS Users</p>
+                    <p className="text-orange-100 text-xs mt-1">
+                      Make sure ringer switch is ON and volume is up!
+                    </p>
+                  </div>
+                </div>
+              )}
+              
+              <div className="mt-4 pt-4 border-t border-[#8ee4d4]/20">
+                <p className="text-[#8ee4d4] text-xs text-center">
+                  ✨ Click below to grant permissions & wake up BMO! ✨
+                </p>
+              </div>
+            </div>
+            
+            {/* Start Button - Big and Inviting */}
+            <button
+              onClick={handleStart}
+              className="group w-full py-5 px-8 bg-gradient-to-br from-[#2ecc71] via-[#27ae60] to-[#229954] text-white rounded-2xl font-press-start text-base shadow-[0_8px_0_#1e8449] hover:shadow-[0_6px_0_#1e8449] hover:translate-y-0.5 active:translate-y-1 active:shadow-[0_3px_0_#1e8449] transition-all duration-150 uppercase border-2 border-[#27ae60] hover:border-[#2ecc71] relative overflow-hidden"
+            >
+              <span className="relative z-10 flex items-center justify-center gap-3">
+                <span className="text-2xl group-hover:animate-bounce">🎮</span>
+                <span>Wake Up BMO!</span>
+                <span className="text-2xl group-hover:animate-bounce animation-delay-150">🎵</span>
+              </span>
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent translate-x-[-200%] group-hover:translate-x-[200%] transition-transform duration-700" />
+            </button>
+            
+            {/* Footer Notes */}
+            <div className="space-y-2">
+              <p className="text-[#8ee4d4] text-xs opacity-90 flex items-center justify-center gap-2">
+                <span>🎵</span>
+                <span>Best experienced with sound on!</span>
+                <span>🎵</span>
+              </p>
+              <p className="text-white/50 text-xs">
+                Permissions are only used for voice features
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Animated background particles */}
+      <div className="fixed inset-0 opacity-20 pointer-events-none animate-float">
+        <div className="absolute w-2 h-2 bg-white rounded-full top-[20%] left-[20%]" />
+        <div className="absolute w-2 h-2 bg-white rounded-full top-[80%] left-[80%]" />
+        <div className="absolute w-2 h-2 bg-white rounded-full top-[40%] left-[60%]" />
+      </div>
+
+      {/* Floating Music Notes (when singing) */}
+      {showMusicNotes && (
+        <div className="fixed inset-0 pointer-events-none z-50">
+          <div className="absolute text-4xl animate-float-up top-[20%] left-[30%]" style={{ animationDelay: '0s' }}>♪</div>
+          <div className="absolute text-5xl animate-float-up top-[40%] left-[60%]" style={{ animationDelay: '0.3s' }}>♫</div>
+          <div className="absolute text-4xl animate-float-up top-[60%] left-[20%]" style={{ animationDelay: '0.6s' }}>♬</div>
+          <div className="absolute text-5xl animate-float-up top-[30%] left-[70%]" style={{ animationDelay: '0.9s' }}>♪</div>
+          <div className="absolute text-4xl animate-float-up top-[70%] left-[50%]" style={{ animationDelay: '1.2s' }}>♫</div>
+          <div className="absolute text-5xl animate-float-up top-[50%] left-[40%]" style={{ animationDelay: '1.5s' }}>♪</div>
         </div>
       )}
 
-      {/* Conversation History Modal */}
-      {showHistory && (
-        <ConversationHistory
-          messages={currentUser ? getConversationHistory(currentUser.id) : []}
-          onClear={handleClearHistory}
-        />
-      )}
+      {/* BMO Console */}
+      <div className="relative z-10 w-full max-w-[420px]">
+        {/* Name Badge */}
+        <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-gradient-to-r from-[#f39c12] to-[#e67e22] text-white font-press-start text-xs px-5 py-2 rounded-full shadow-lg tracking-[2px] animate-bounce-slow">
+          BMO
+        </div>
 
-      <div className="max-w-md w-full">
-        {/* BMO Body */}
-        <div className="bg-gradient-to-b from-[#5dcdce] to-[#4fb8b9] rounded-3xl p-8 shadow-2xl border-8 border-[#2d6d6e] relative overflow-hidden">
+        {/* Main Console Body */}
+        <div className="bg-gradient-to-b from-[#5dcdce] via-[#4fb8b9] to-[#3fa4a5] rounded-[28px] p-6 shadow-2xl relative animate-appear border-4 border-[#3fa4a5]">
+          {/* Status Light */}
+          <div className="absolute top-4 right-4 w-3 h-3 bg-[#2ecc71] rounded-full shadow-[0_0_10px_rgba(46,204,113,0.8)] animate-pulse" />
           
-          {/* Top indicator lights */}
-          <div className="absolute top-3 right-3 flex gap-2">
-            <div className="w-3 h-3 rounded-full bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.8)] animate-pulse"></div>
-            <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.8)]"></div>
+          {/* Cartridge Slot */}
+          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-3 bg-[#2d6d6e] rounded-sm shadow-inner flex items-center justify-center gap-0.5">
+            <div className="w-0.5 h-1.5 bg-[#0a3d3f] rounded-full"></div>
+            <div className="w-0.5 h-1.5 bg-[#0a3d3f] rounded-full"></div>
+            <div className="w-0.5 h-1.5 bg-[#0a3d3f] rounded-full"></div>
           </div>
 
-          {/* User info and logout */}
-          <div className="absolute top-3 left-3 flex items-center gap-2">
-            <div className="text-[#1a5f7a] font-press-start text-[8px] bg-white/80 px-2 py-1 rounded">
-              {currentUser.name}
-            </div>
-            <button
-              onClick={toggleHistory}
-              className="text-[#1a5f7a] hover:text-[#0a3d3f] transition-colors"
-              title="View history"
-            >
-              <MessageSquare size={16} />
-            </button>
-            <button
-              onClick={handleLogout}
-              className="text-[#1a5f7a] hover:text-red-600 transition-colors"
-              title="Logout"
-            >
-              <LogOut size={16} />
-            </button>
+          {/* Side ports */}
+          <div className="absolute left-2 top-20 flex flex-col gap-2">
+            <div className="w-4 h-2 bg-[#2d6d6e] rounded-sm shadow-inner border border-[#0a3d3f]"></div>
+            <div className="w-4 h-2 bg-[#2d6d6e] rounded-sm shadow-inner border border-[#0a3d3f]"></div>
           </div>
-
-          {/* Screen area */}
-          <div className="bg-gradient-to-br from-[#8ee4d4] to-[#5dcdce] rounded-2xl p-6 mb-6 shadow-[inset_0_4px_12px_rgba(0,0,0,0.2)] border-4 border-[#2d6d6e] min-h-[280px] flex flex-col">
+          
+          <div className="absolute right-2 top-20 flex flex-col gap-2">
+            <div className="w-4 h-2 bg-[#2d6d6e] rounded-sm shadow-inner border border-[#0a3d3f]"></div>
+            <div className="w-4 h-2 bg-[#2d6d6e] rounded-sm shadow-inner border border-[#0a3d3f]"></div>
+          </div>
+          
+          {/* Screen */}
+          <div className="bg-gradient-to-b from-[#8ee4d4] to-[#6dd4c4] rounded-2xl p-5 mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] min-h-[200px] relative overflow-hidden border-4 border-[#3fa4a5]">
+            {/* Scanline effect */}
+            <div className="absolute inset-0 pointer-events-none bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.03)_0px,rgba(0,0,0,0.03)_2px,transparent_2px,transparent_4px)] animate-scanline" />
             
-            {/* BMO's Face */}
-            <div className="flex-1 flex items-center justify-center mb-4">
-              <BMOFace mood={mood} isSpeaking={isSpeaking} isListening={isListening} />
+            {/* Screen reflection overlay */}
+            <div className="absolute top-0 left-0 w-full h-1/3 bg-gradient-to-b from-white/20 to-transparent pointer-events-none rounded-t-2xl" />
+            
+            {/* Pixel Face with voice animations */}
+            <BMOFace mood={mood} isSpeaking={isSpeaking} isListening={isListening} />
+            
+            {/* Mood Indicator */}
+            <div className="text-center mt-2 font-press-start text-[8px] text-[#2a5d5f] uppercase tracking-wider">
+              {isListening ? '🎤 LISTENING...' : isSpeaking ? '🔊 SPEAKING...' : MOOD_TEXTS[mood]}
             </div>
-
-            {/* Mood text */}
-            <div className="text-center">
-              <p className="text-[#1a5f7a] font-press-start text-xs">
-                {MOOD_TEXTS[mood]}
-              </p>
-            </div>
-
-            {/* Audio unlock banner */}
-            {needsAudioUnlock && (
-              <div className="mt-3 p-2 bg-yellow-100/90 border-2 border-yellow-400 rounded-lg">
-                <p className="text-xs text-yellow-800 font-bold text-center mb-1">
-                  🔊 Tap to enable audio
-                </p>
-                <button
-                  onClick={retryGreeting}
-                  className="w-full text-xs bg-yellow-500 text-white py-1 px-2 rounded font-bold hover:bg-yellow-600 transition-colors"
-                >
-                  Enable Sound
-                </button>
+            
+            {/* Listening Tip (iOS) */}
+            {isListening && /iPad|iPhone|iPod/.test(navigator.userAgent) && (
+              <div className="text-center text-[10px] text-[#2a5d5f]/70 mt-1">
+                Speak clearly and wait for response
+              </div>
+            )}
+            
+            {/* Voice Error Display */}
+            {speechError && (
+              <div className="text-center text-xs text-red-600 mt-1">
+                {speechError}
+              </div>
+            )}
+            
+            {/* Enhanced Typing Indicator */}
+            {isTyping && (
+              <div className="flex items-center justify-center gap-2 mt-3 p-3 bg-gradient-to-r from-[#5dcdce]/20 to-[#4fb8b9]/20 rounded-lg border-2 border-[#5dcdce]/50">
+                <div className="flex gap-1">
+                  <div className="w-2 h-2 bg-[#4fb8b9] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                  <div className="w-2 h-2 bg-[#4fb8b9] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                  <div className="w-2 h-2 bg-[#4fb8b9] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                </div>
+                <span className="text-[#4fb8b9] text-xs font-bold">
+                  BMO is thinking...
+                </span>
               </div>
             )}
             

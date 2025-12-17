@@ -65,118 +65,10 @@ app.use(express.json());
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    message: 'BMO backend is running!',
-    cache_size: responseCache.size,
-    uptime: process.uptime()
-  });
+  res.json({ status: 'ok', message: 'BMO backend is running!' });
 });
 
-// OPTIMIZATION: Add streaming endpoint for faster perceived responses
-app.post('/api/chat-stream', async (req, res) => {
-  try {
-    const { messages, system } = req.body;
-    
-    // Check backend cache first
-    const cacheKey = generateCacheKey(messages);
-    const cached = responseCache.get(cacheKey);
-    
-    if (cached && Date.now() < cached.expiresAt) {
-      console.log('⚡ Backend cache hit! Instant response');
-      // Send cached response as stream for consistent handling
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      
-      // Send complete cached response
-      res.write(`data: ${JSON.stringify(cached.data)}\n\n`);
-      res.end();
-      return;
-    }
-    
-    // Get API key from environment
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    
-    if (!apiKey) {
-      console.error('❌ API key not found in environment variables');
-      return res.status(500).json({ 
-        error: 'API key not configured on server' 
-      });
-    }
-
-    console.log('📤 Streaming response from Anthropic API...');
-    console.log('📝 Messages:', messages.length);
-
-    // Set up SSE headers for streaming
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-
-    // Call Anthropic API with streaming enabled
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 300,
-        system: system,
-        messages: messages,
-        stream: true  // Enable streaming
-      })
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('❌ Anthropic API error:', response.status, errorData);
-      res.write(`data: ${JSON.stringify({ error: errorData })}\n\n`);
-      res.end();
-      return;
-    }
-
-    // Stream response chunks to client
-    let fullResponse = '';
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value);
-      fullResponse += chunk;
-      
-      // Forward chunk to client
-      res.write(`data: ${chunk}\n\n`);
-    }
-
-    res.end();
-    
-    console.log('✅ Streaming complete');
-    
-    // Cache the full response for future requests
-    if (fullResponse) {
-      responseCache.set(cacheKey, {
-        data: fullResponse,
-        expiresAt: Date.now() + CACHE_TTL
-      });
-    }
-
-  } catch (error) {
-    console.error('💥 Error in streaming chat endpoint:', error);
-    res.write(`data: ${JSON.stringify({ 
-      error: 'Internal server error',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    })}\n\n`);
-    res.end();
-  }
-});
-
-// Regular (non-streaming) endpoint - kept for compatibility
+// Proxy endpoint for Claude API with caching
 app.post('/api/chat', async (req, res) => {
   try {
     const { messages, system } = req.body;
@@ -234,8 +126,8 @@ app.post('/api/chat', async (req, res) => {
       expiresAt: Date.now() + CACHE_TTL
     });
     
-    // OPTIMIZATION: Increased cache limit from 100 to 200
-    if (responseCache.size > 200) {
+    // Limit cache size (max 100 entries)
+    if (responseCache.size > 100) {
       const firstKey = responseCache.keys().next().value;
       responseCache.delete(firstKey);
       console.log('🧹 Cache full - removed oldest entry');
@@ -251,7 +143,7 @@ app.post('/api/chat', async (req, res) => {
   }
 });
 
-// TTS endpoint - kept as is (already optimized)
+// Proxy endpoint for Fish Audio TTS
 app.post('/api/tts', async (req, res) => {
   try {
     const { text } = req.body;
@@ -342,5 +234,4 @@ app.listen(PORT, () => {
   console.log(`🌐 CORS enabled for: ${process.env.FRONTEND_URL || 'localhost'}`);
   console.log('');
   console.log('Ready to proxy requests to Anthropic API! 🚀');
-  console.log('Streaming endpoint available at /api/chat-stream');
 });
