@@ -54,8 +54,7 @@ const App: React.FC = () => {
     startListening,
     stopListening,
     resetTranscript,
-    isSupported: sttSupported,
-    error: speechError
+    isSupported: sttSupported
   } = useSpeechRecognition();
 
   // Check for existing user on mount
@@ -214,8 +213,8 @@ const App: React.FC = () => {
 
       // Save to user's conversation history if logged in
       if (currentUser) {
-        addMessageToHistory(currentUser.id, { role: 'user', content: userMessage });
-        addMessageToHistory(currentUser.id, { role: 'assistant', content: bmoResponse });
+        addMessageToHistory(currentUser.id, 'user', userMessage);
+        addMessageToHistory(currentUser.id, 'assistant', bmoResponse);
       }
       
       // Show response immediately (don't wait for TTS)
@@ -435,7 +434,7 @@ const App: React.FC = () => {
   // Handle user logout
   const handleLogout = () => {
     if (currentUser) {
-      logout(currentUser.id);
+      logout();
       setCurrentUser(null);
       setConversationHistory([]);
       console.log('👤 User logged out');
@@ -606,8 +605,7 @@ const App: React.FC = () => {
       {/* Conversation History Modal */}
       {showHistory && (
         <ConversationHistory
-          conversationHistory={conversationHistory}
-          onClose={toggleHistory}
+          messages={currentUser ? getConversationHistory(currentUser.id) : []}
           onClear={handleClearHistory}
         />
       )}
