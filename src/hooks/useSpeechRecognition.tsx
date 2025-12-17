@@ -19,6 +19,7 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
   });
 
   const recognitionRef = useRef<any>(null);
+  const isListeningRef = useRef<boolean>(false);  // Track listening state for iOS
 
   useEffect(() => {
     if (!isSupported) return;
@@ -46,16 +47,37 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     // Event handlers
     recognition.onstart = () => {
       setIsListening(true);
+      isListeningRef.current = true;
       setError(null);
       console.log('🎤 Listening started... Speak now!');
     };
 
     recognition.onresult = (event: any) => {
-      const current = event.resultIndex;
-      const transcriptText = event.results[current][0].transcript;
+      console.log('📝 Speech result event:', event);
       
-      setTranscript(transcriptText);
-      console.log('📝 Transcript:', transcriptText);
+      // Get the transcript from the latest result
+      let finalTranscript = '';
+      let interimTranscript = '';
+      
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        const transcriptText = result[0].transcript;
+        
+        if (result.isFinal) {
+          finalTranscript += transcriptText;
+          console.log('✅ Final transcript:', transcriptText);
+        } else {
+          interimTranscript += transcriptText;
+          console.log('⏳ Interim transcript:', transcriptText);
+        }
+      }
+      
+      // Update with final transcript if available, otherwise interim
+      const textToUse = finalTranscript || interimTranscript;
+      if (textToUse) {
+        setTranscript(textToUse);
+        console.log('📝 Updated transcript:', textToUse);
+      }
       
       // Clear any previous errors when we get results
       setError(null);
@@ -81,28 +103,18 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
       }
       
       setIsListening(false);
+      isListeningRef.current = false;
     };
 
     recognition.onend = () => {
-      console.log('🎤 Listening stopped');
+      console.log('🎤 Recognition ended');
+      console.log('   isListeningRef:', isListeningRef.current);
       
-      // iOS-specific: Auto-restart if user is still in listening mode
-      // iOS speech recognition stops after each utterance
-      if (/iPad|iPhone|iPod/.test(navigator.userAgent) && isListening) {
-        console.log('📱 iOS: Auto-restarting recognition...');
-        setTimeout(() => {
-          if (recognitionRef.current && isListening) {
-            try {
-              recognitionRef.current.start();
-            } catch (e) {
-              console.warn('Could not restart recognition:', e);
-              setIsListening(false);
-            }
-          }
-        }, 100);
-      } else {
-        setIsListening(false);
-      }
+      // Set listening to false so transcript gets processed
+      setIsListening(false);
+      isListeningRef.current = false;
+      
+      console.log('✅ Ready to process transcript');
     };
 
     recognitionRef.current = recognition;
@@ -120,9 +132,10 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
       return;
     }
 
-    if (recognitionRef.current && !isListening) {
+    if (recognitionRef.current && !isListeningRef.current) {
       setTranscript('');
       setError(null);
+      console.log('🎤 Starting speech recognition...');
       try {
         recognitionRef.current.start();
       } catch (err) {
@@ -130,13 +143,14 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
         setError('Failed to start listening');
       }
     }
-  }, [isSupported, isListening]);
+  }, [isSupported]);
 
   const stopListening = useCallback(() => {
-    if (recognitionRef.current && isListening) {
+    if (recognitionRef.current && isListeningRef.current) {
+      console.log('🛑 Stopping speech recognition...');
       recognitionRef.current.stop();
     }
-  }, [isListening]);
+  }, []);
 
   const resetTranscript = useCallback(() => {
     setTranscript('');

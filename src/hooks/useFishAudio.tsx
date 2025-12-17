@@ -60,6 +60,19 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
 
       // Get audio as blob (binary data)
       const audioBlob = await response.blob();
+      
+      // Validate blob
+      if (!audioBlob || audioBlob.size === 0) {
+        throw new Error('Received empty audio from backend');
+      }
+      
+      console.log(`📦 Received audio blob: ${audioBlob.size} bytes, type: ${audioBlob.type}`);
+      
+      // Validate blob type
+      if (!audioBlob.type.includes('audio') && !audioBlob.type.includes('mpeg')) {
+        console.warn('⚠️ Unexpected blob type:', audioBlob.type);
+      }
+      
       const audioUrl = URL.createObjectURL(audioBlob);
 
       // Use prewarmed audio element if available (iOS compatibility)
@@ -75,27 +88,67 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
       audio.src = audioUrl;
       audioRef.current = audio;
 
-      // iOS requires explicit load
-      audio.load();
-      
-      // Set attributes (just in case)
+      // Set attributes BEFORE load (iOS requirement)
       audio.setAttribute('playsinline', 'true');
       audio.setAttribute('webkit-playsinline', 'true');
+      
+      // iOS requires explicit load
+      audio.load();
 
       audio.onended = () => {
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
-        // Return to pool
+        // Clean up event handlers before returning to pool
+        audio.onended = null;
+        audio.onerror = null;
         audio.src = '';
         audioPoolRef.current.push(audio);
         audioRef.current = null;
       };
 
       audio.onerror = (e) => {
+        // Ignore errors if audio src is empty (happens when returning to pool)
+        if (!audio.src || audio.src === '') {
+          console.log('Ignoring error for empty audio element');
+          return;
+        }
+        
         console.error('Audio playback error:', e);
-        setError('Failed to play audio');
+        console.error('Audio element state:', {
+          src: audio.src,
+          readyState: audio.readyState,
+          error: audio.error ? {
+            code: audio.error.code,
+            message: audio.error.message
+          } : 'none'
+        });
+        
+        // Provide helpful error based on error code
+        let errorMsg = 'Failed to play audio';
+        if (audio.error) {
+          switch (audio.error.code) {
+            case 1: // MEDIA_ERR_ABORTED
+              // Don't show error for aborted (user stopped it)
+              console.log('Audio aborted by user');
+              return;
+            case 2: // MEDIA_ERR_NETWORK
+              errorMsg = 'Network error loading audio';
+              break;
+            case 3: // MEDIA_ERR_DECODE
+              errorMsg = 'Audio decoding error';
+              break;
+            case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+              errorMsg = 'Audio format not supported';
+              break;
+          }
+        }
+        
+        setError(errorMsg);
         setIsSpeaking(false);
         URL.revokeObjectURL(audioUrl);
+        // Clean up event handlers
+        audio.onended = null;
+        audio.onerror = null;
         audio.src = '';
         audioPoolRef.current.push(audio);
         audioRef.current = null;
@@ -112,7 +165,9 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
         console.error('Play error (iOS might block):', playError);
         setError('Failed to play audio');
         setIsSpeaking(false);
-        // Return audio to pool on error
+        // Clean up and return audio to pool on error
+        audio.onended = null;
+        audio.onerror = null;
         audio.src = '';
         audioPoolRef.current.push(audio);
         audioRef.current = null;
@@ -128,9 +183,17 @@ export const useFishAudio = (_apiKey?: string): UseFishAudioOutput => {
   const stop = () => {
     if (audioRef.current) {
       audioRef.current.pause();
+      // Clean up event handlers
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      // Return to pool
+      const audio = audioRef.current;
+      audio.src = '';
+      audioPoolRef.current.push(audio);
       audioRef.current = null;
     }
     setIsSpeaking(false);
+    setError(null);  // Clear any errors when manually stopped
   };
 
   return {
