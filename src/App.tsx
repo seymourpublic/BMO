@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { BMOFace } from './components/BMOFace';
-import { LoginScreen } from './components/LoginScreen';
-import { ConversationHistory } from './components/ConversationHistory';
 import { sendMessageToClaude } from './utils/api';
 import { MOOD_TEXTS, STORY_PROMPTS } from './utils/constants';
 import { Message, Mood } from './types';
@@ -10,17 +8,7 @@ import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { soundEffects } from './utils/sounds';
 import { bmoSongs, SPECIAL_SONG_LYRICS, SPECIAL_SONG_TRIGGERS } from './utils/songs';
 import { unlockIOSAudio } from './utils/iosAudio';
-import { 
-  getCurrentUser, 
-  createUser, 
-  loadUserData, 
-  addMessageToHistory, 
-  getConversationContext,
-  clearConversationHistory,
-  logout,
-  User 
-} from './utils/userAuth';
-import { Mic, MicOff, Volume2, VolumeX, LogOut, MessageSquare } from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import './App.css';
 
 const App: React.FC = () => {
@@ -32,8 +20,6 @@ const App: React.FC = () => {
   const [showMusicNotes, setShowMusicNotes] = useState<boolean>(false);
   const [isStarted, setIsStarted] = useState<boolean>(false);  // Track if user clicked start
   const [needsAudioUnlock, setNeedsAudioUnlock] = useState<boolean>(false);  // Track if audio needs unlock
-  const [showHistory, setShowHistory] = useState<boolean>(false);  // Show conversation history
-  const [currentUser, setCurrentUser] = useState<User | null>(null);  // Current logged in user
   const inputRef = useRef<HTMLInputElement>(null);
   const hasPlayedGreeting = useRef<boolean>(false);  // Track if greeting has played
   const audioUnlocked = useRef<boolean>(false);  // Track if audio context is unlocked
@@ -57,28 +43,6 @@ const App: React.FC = () => {
     isSupported: sttSupported,
     error: speechError
   } = useSpeechRecognition();
-
-  // Check for existing user on mount
-  useEffect(() => {
-    const user = getCurrentUser();
-    if (user) {
-      setCurrentUser(user);
-      console.log('👤 Welcome back,', user.name);
-      
-      // Load user preferences
-      const userData = loadUserData(user.id);
-      if (userData) {
-        setVoiceEnabled(userData.preferences.voiceEnabled);
-        // Load last 10 messages into conversation history for context
-        const context = getConversationContext(user.id);
-        const messages: Message[] = context.map(msg => ({
-          role: msg.role,
-          content: msg.content
-        }));
-        setConversationHistory(messages);
-      }
-    }
-  }, []);
 
   // Focus input on mount
   useEffect(() => {
