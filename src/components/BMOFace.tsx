@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { Mood } from '../types';
 
 interface BMOFaceProps {
@@ -7,7 +7,7 @@ interface BMOFaceProps {
   isListening?: boolean;
 }
 
-export const BMOFace: React.FC<BMOFaceProps> = ({ mood, isSpeaking = false, isListening = false }) => {
+export const BMOFace: React.FC<BMOFaceProps> = memo(({ mood, isSpeaking = false, isListening = false }) => {
   // Eye configurations for different moods
   const eyeConfigs = {
     happy: { leftY: 35, rightY: 35, size: 16 },
@@ -202,4 +202,9 @@ export const BMOFace: React.FC<BMOFaceProps> = ({ mood, isSpeaking = false, isLi
       </div>
     </div>
   );
-};
+}, (prevProps, nextProps) => {
+  // Only re-render if props actually changed
+  return prevProps.mood === nextProps.mood &&
+         prevProps.isSpeaking === nextProps.isSpeaking &&
+         prevProps.isListening === nextProps.isListening;
+});

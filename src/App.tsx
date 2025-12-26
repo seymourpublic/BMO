@@ -8,6 +8,7 @@ import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { soundEffects } from './utils/sounds';
 import { bmoSongs, SPECIAL_SONG_LYRICS, SPECIAL_SONG_TRIGGERS } from './utils/songs';
 import { unlockIOSAudio } from './utils/iosAudio';
+import { getCurrentUser, loadUserData, getConversationContext } from './utils/userAuth';
 import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import './App.css';
 
@@ -16,11 +17,14 @@ const App: React.FC = () => {
   const [inputValue, setInputValue] = useState<string>('');
   const [isTyping, setIsTyping] = useState<boolean>(false);
   const [conversationHistory, setConversationHistory] = useState<Message[]>([]);
+  const [displayMessages, setDisplayMessages] = useState<Array<{role: 'user' | 'assistant', text: string}>>([]);  // For chat bubbles
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(true);
   const [showMusicNotes, setShowMusicNotes] = useState<boolean>(false);
   const [isStarted, setIsStarted] = useState<boolean>(false);  // Track if user clicked start
   const [needsAudioUnlock, setNeedsAudioUnlock] = useState<boolean>(false);  // Track if audio needs unlock
+  const [chatMode, setChatMode] = useState<'voice' | 'text'>('voice');  // Chat mode toggle
   const inputRef = useRef<HTMLInputElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);  // For auto-scroll to latest message
   const hasPlayedGreeting = useRef<boolean>(false);  // Track if greeting has played
   const audioUnlocked = useRef<boolean>(false);  // Track if audio context is unlocked
 
@@ -43,6 +47,28 @@ const App: React.FC = () => {
     isSupported: sttSupported,
     error: speechError
   } = useSpeechRecognition();
+
+  // Check for existing user on mount and load conversation history
+  useEffect(() => {
+    const user = getCurrentUser();
+    if (user) {
+      console.log('👤 Welcome back,', user.name);
+      
+      // Load user preferences
+      const userData = loadUserData(user.id);
+      if (userData) {
+        setVoiceEnabled(userData.preferences.voiceEnabled);
+        // Load last 10 messages into conversation history for context
+        const context = getConversationContext(user.id);
+        const messages: Message[] = context.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }));
+        setConversationHistory(messages);
+        console.log(`📚 Loaded ${messages.length} messages from history`);
+      }
+    }
+  }, []);
 
   // Focus input on mount
   useEffect(() => {
@@ -170,8 +196,8 @@ const App: React.FC = () => {
         await playEmoteSequence(emotes);
       }
       
-      // Speak the CLEAN response (without asterisks)
-      if (voiceEnabled && ttsSupported) {
+      // Speak the CLEAN response (only in voice mode and if voice enabled)
+      if (chatMode === 'voice' && voiceEnabled && ttsSupported) {
         await speak(cleanText);
       }
       
@@ -188,12 +214,12 @@ const App: React.FC = () => {
       soundEffects.playError();
       
       const errorMsg = "Oh no! BMO's circuits got confused! BMO needs a moment...";
-      if (voiceEnabled && ttsSupported) {
+      if (chatMode === 'voice' && voiceEnabled && ttsSupported) {
         speak(errorMsg);
       }
       setMood('sad');
     }
-  }, [conversationHistory, voiceEnabled, ttsSupported, speak]);
+  }, [conversationHistory, chatMode, voiceEnabled, ttsSupported, speak]);
 
   // Extract emotes from text (like *excited*, *jumps*, etc.)
   const extractEmotes = (text: string): { cleanText: string; emotes: string[] } => {
@@ -302,6 +328,20 @@ const App: React.FC = () => {
     }
   }, [transcript, isListening, resetTranscript, sendToBMO]);
 
+  // Update display messages when conversation changes
+  useEffect(() => {
+    const messages = conversationHistory.map(msg => ({
+      role: msg.role,
+      text: msg.content
+    }));
+    setDisplayMessages(messages);
+  }, [conversationHistory]);
+
+  // Auto-scroll to latest message
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [displayMessages]);
+
   // Handle sending message
   const handleSendMessage = () => {
     if (inputValue.trim() === '' || isTyping) return;
@@ -352,6 +392,23 @@ const App: React.FC = () => {
     
     // Play button click sound
     soundEffects.playButtonClick();
+  };
+
+  // Toggle between voice and text chat mode
+  const toggleChatMode = () => {
+    const newMode = chatMode === 'voice' ? 'text' : 'voice';
+    setChatMode(newMode);
+    
+    // Stop any ongoing voice activity when switching to text
+    if (newMode === 'text') {
+      if (isListening) stopListening();
+      if (isSpeaking) stopSpeaking();
+    }
+    
+    // Play button click sound
+    soundEffects.playButtonClick();
+    
+    console.log(`📝 Chat mode: ${newMode}`);
   };
 
   // Handle start button - request permissions and initialize audio (iOS compatible)
@@ -637,23 +694,96 @@ const App: React.FC = () => {
           </div>
           
           {/* Screen */}
-          <div className="bg-gradient-to-b from-[#8ee4d4] to-[#6dd4c4] rounded-2xl p-5 mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] min-h-[200px] relative overflow-hidden border-4 border-[#3fa4a5]">
+          <div className="bg-gradient-to-b from-[#8ee4d4] to-[#6dd4c4] rounded-2xl p-5 mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] min-h-[200px] max-h-[400px] relative overflow-hidden border-4 border-[#3fa4a5]">
             {/* Scanline effect */}
             <div className="absolute inset-0 pointer-events-none bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.03)_0px,rgba(0,0,0,0.03)_2px,transparent_2px,transparent_4px)] animate-scanline" />
             
             {/* Screen reflection overlay */}
             <div className="absolute top-0 left-0 w-full h-1/3 bg-gradient-to-b from-white/20 to-transparent pointer-events-none rounded-t-2xl" />
             
-            {/* Pixel Face with voice animations */}
-            <BMOFace mood={mood} isSpeaking={isSpeaking} isListening={isListening} />
+            {/* VOICE MODE: Show BMO Face */}
+            {chatMode === 'voice' && (
+              <>
+                <BMOFace mood={mood} isSpeaking={isSpeaking} isListening={isListening} />
+                
+                {/* Mood Indicator */}
+                <div className="text-center mt-2 space-y-1">
+                  <div className="font-press-start text-[8px] text-[#2a5d5f] uppercase tracking-wider">
+                    {isListening ? '🎤 LISTENING...' : isSpeaking ? '🔊 SPEAKING...' : MOOD_TEXTS[mood]}
+                  </div>
+                  {/* Chat Mode Badge */}
+                  <div className="inline-block px-2 py-0.5 rounded text-[6px] font-press-start bg-blue-500/20 text-blue-700">
+                    🎤 VOICE MODE
+                  </div>
+                </div>
+              </>
+            )}
             
-            {/* Mood Indicator */}
-            <div className="text-center mt-2 font-press-start text-[8px] text-[#2a5d5f] uppercase tracking-wider">
-              {isListening ? '🎤 LISTENING...' : isSpeaking ? '🔊 SPEAKING...' : MOOD_TEXTS[mood]}
-            </div>
+            {/* TEXT MODE: Show Chat Bubbles */}
+            {chatMode === 'text' && (
+              <div className="h-full flex flex-col">
+                {/* Chat Mode Badge (top) */}
+                <div className="text-center mb-2">
+                  <div className="inline-block px-2 py-0.5 rounded text-[6px] font-press-start bg-orange-500/20 text-orange-700">
+                    💬 TEXT MODE
+                  </div>
+                </div>
+                
+                {/* Messages Container */}
+                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                  {displayMessages.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                      <div className="text-4xl mb-2">💬</div>
+                      <div className="font-press-start text-[8px] text-[#2a5d5f]/70">
+                        Start chatting with BMO!
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {displayMessages.map((msg, index) => (
+                        <div
+                          key={index}
+                          className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                        >
+                          <div
+                            className={`max-w-[80%] px-3 py-2 rounded-lg text-xs break-words ${
+                              msg.role === 'user'
+                                ? 'bg-[#3498db] text-white rounded-br-none shadow-md'
+                                : 'bg-white/90 text-[#2a5d5f] rounded-bl-none shadow-md border-2 border-[#3fa4a5]'
+                            }`}
+                          >
+                            {msg.role === 'assistant' && (
+                              <div className="font-bold text-[10px] mb-1 text-[#e67e22]">🎮 BMO</div>
+                            )}
+                            <div className={msg.role === 'user' ? 'font-medium' : ''}>
+                              {msg.text}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      <div ref={messagesEndRef} />
+                    </>
+                  )}
+                </div>
+                
+                {/* Typing Indicator in chat */}
+                {isTyping && (
+                  <div className="flex justify-start mt-2">
+                    <div className="bg-white/90 px-3 py-2 rounded-lg rounded-bl-none shadow-md border-2 border-[#3fa4a5]">
+                      <div className="font-bold text-[10px] mb-1 text-[#e67e22]">🎮 BMO</div>
+                      <div className="flex gap-1">
+                        <div className="w-2 h-2 bg-[#2a5d5f] rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                        <div className="w-2 h-2 bg-[#2a5d5f] rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                        <div className="w-2 h-2 bg-[#2a5d5f] rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             
-            {/* Listening Tip (iOS) */}
-            {isListening && /iPad|iPhone|iPod/.test(navigator.userAgent) && (
+            {/* Listening Tip (iOS) - shown in both modes if listening */}
+            {chatMode === 'voice' && isListening && /iPad|iPhone|iPod/.test(navigator.userAgent) && (
               <div className="text-center text-[10px] text-[#2a5d5f]/70 mt-1">
                 Speak clearly and wait for response
               </div>
@@ -699,7 +829,20 @@ const App: React.FC = () => {
 
           {/* Voice Controls */}
           <div className="flex gap-2 mb-4">
-            {sttSupported && (
+            {/* Chat Mode Toggle */}
+            <button
+              onClick={toggleChatMode}
+              className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-press-start text-[8px] transition-all ${
+                chatMode === 'voice'
+                  ? 'bg-gradient-to-b from-[#3498db] to-[#2980b9] text-white shadow-[0_4px_0_#1f5f8b]'
+                  : 'bg-gradient-to-b from-[#f39c12] to-[#e67e22] text-white shadow-[0_4px_0_#c0730e]'
+              } hover:-translate-y-0.5 active:translate-y-0.5 uppercase`}
+            >
+              {chatMode === 'voice' ? '🎤' : '💬'}
+              {chatMode === 'voice' ? 'Voice' : 'Text'}
+            </button>
+            
+            {sttSupported && chatMode === 'voice' && (
               <button
                 onClick={toggleListening}
                 disabled={isTyping}
@@ -714,7 +857,7 @@ const App: React.FC = () => {
               </button>
             )}
             
-            {ttsSupported && (
+            {ttsSupported && chatMode === 'voice' && (
               <button
                 onClick={toggleVoice}
                 className={`flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-press-start text-[8px] transition-all ${

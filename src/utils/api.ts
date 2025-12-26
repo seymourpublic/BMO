@@ -1,19 +1,30 @@
 import { Message, BMOResponse } from '../types';
 import { BMO_PERSONALITY } from './constants';
-import { responseCache } from './cache';
+import { persistentCache } from './persistentCache';
+import { getUserSummary } from './userAuth';
 
 export const sendMessageToClaude = async (
-  conversationHistory: Message[]
+  conversationHistory: Message[],
+  userId?: string
 ): Promise<string> => {
   try {
     const startTime = performance.now();
     
-    // Check cache first for faster responses
-    const cachedResponse = responseCache.get(conversationHistory);
+    // Check persistent cache first (memory + IndexedDB)
+    const cachedResponse = await persistentCache.get(conversationHistory);
     if (cachedResponse) {
       const cacheTime = performance.now() - startTime;
       console.log(`⚡ Cache hit! Response time: ${cacheTime.toFixed(0)}ms`);
       return cachedResponse;
+    }
+
+    // Build system prompt with user context
+    let systemPrompt = BMO_PERSONALITY;
+    if (userId) {
+      const userContext = getUserSummary(userId);
+      if (userContext) {
+        systemPrompt = `${BMO_PERSONALITY}\n\n${userContext}`;
+      }
     }
 
     // Call our backend proxy instead of Anthropic directly
@@ -29,7 +40,7 @@ export const sendMessageToClaude = async (
       },
       body: JSON.stringify({
         messages: conversationHistory,
-        system: BMO_PERSONALITY
+        system: systemPrompt
       })
     });
 
@@ -54,8 +65,8 @@ export const sendMessageToClaude = async (
     const totalTime = performance.now() - startTime;
     console.log(`📊 Total response time: ${totalTime.toFixed(0)}ms`);
 
-    // Cache the response for faster future access
-    responseCache.set(conversationHistory, assistantResponse);
+    // Cache the response for faster future access (30 min TTL)
+    await persistentCache.set(conversationHistory, assistantResponse, 1800000);
 
     return assistantResponse;
   } catch (error) {
