@@ -12,6 +12,136 @@ import { getCurrentUser, loadUserData, getConversationContext } from './utils/us
 import { Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import './App.css';
 
+// Color theme definitions
+const COLOR_THEMES = {
+  original: {
+    name: 'Original',
+    emoji: '🎮',
+    body: {
+      primary: '#5dcdce',    // Teal
+      secondary: '#4fb8b9',
+      dark: '#2d6d6e',
+      darker: '#1e4d4e',
+      darkest: '#0a2d2e'
+    },
+    screen: {
+      light: '#8ee4d4',
+      main: '#6dd4c4',
+      border: '#3fa4a5',
+      text: '#2a5d5f'
+    },
+    buttons: '#2d6d6e'
+  },
+  blue: {
+    name: 'Blue',
+    emoji: '💙',
+    body: {
+      primary: '#3498db',
+      secondary: '#2980b9',
+      dark: '#1f5f8b',
+      darker: '#154360',
+      darkest: '#0a2540'
+    },
+    screen: {
+      light: '#85c1e9',
+      main: '#5dade2',
+      border: '#2e86c1',
+      text: '#1b4f72'
+    },
+    buttons: '#2980b9'
+  },
+  pink: {
+    name: 'Pink',
+    emoji: '💗',
+    body: {
+      primary: '#ff69b4',
+      secondary: '#ff1493',
+      dark: '#c71585',
+      darker: '#8b0a50',
+      darkest: '#4d0529'
+    },
+    screen: {
+      light: '#ffb6d9',
+      main: '#ff8dc7',
+      border: '#ff1493',
+      text: '#8b0a50'
+    },
+    buttons: '#ff1493'
+  },
+  red: {
+    name: 'Red',
+    emoji: '❤️',
+    body: {
+      primary: '#e74c3c',
+      secondary: '#c0392b',
+      dark: '#922b21',
+      darker: '#641e16',
+      darkest: '#3d0e0b'
+    },
+    screen: {
+      light: '#f5b7b1',
+      main: '#ec7063',
+      border: '#cb4335',
+      text: '#641e16'
+    },
+    buttons: '#c0392b'
+  },
+  white: {
+    name: 'White',
+    emoji: '🤍',
+    body: {
+      primary: '#ecf0f1',
+      secondary: '#bdc3c7',
+      dark: '#95a5a6',
+      darker: '#7f8c8d',
+      darkest: '#5a6c6d'
+    },
+    screen: {
+      light: '#f8f9fa',
+      main: '#e8eaed',
+      border: '#bdc3c7',
+      text: '#34495e'
+    },
+    buttons: '#95a5a6'
+  },
+  purple: {
+    name: 'Purple',
+    emoji: '💜',
+    body: {
+      primary: '#9b59b6',
+      secondary: '#8e44ad',
+      dark: '#6c3483',
+      darker: '#4a235a',
+      darkest: '#2d1b33'
+    },
+    screen: {
+      light: '#d7bde2',
+      main: '#c39bd3',
+      border: '#8e44ad',
+      text: '#4a235a'
+    },
+    buttons: '#8e44ad'
+  },
+  black: {
+    name: 'Black',
+    emoji: '🖤',
+    body: {
+      primary: '#34495e',
+      secondary: '#2c3e50',
+      dark: '#1a252f',
+      darker: '#0f1419',
+      darkest: '#000000'
+    },
+    screen: {
+      light: '#5d6d7e',
+      main: '#424949',
+      border: '#212f3c',
+      text: '#ecf0f1'
+    },
+    buttons: '#2c3e50'
+  }
+};
+
 const App: React.FC = () => {
   const [mood, setMood] = useState<Mood>('happy');
   const [inputValue, setInputValue] = useState<string>('');
@@ -23,6 +153,8 @@ const App: React.FC = () => {
   const [isStarted, setIsStarted] = useState<boolean>(false);  // Track if user clicked start
   const [needsAudioUnlock, setNeedsAudioUnlock] = useState<boolean>(false);  // Track if audio needs unlock
   const [chatMode, setChatMode] = useState<'voice' | 'text'>('voice');  // Chat mode toggle
+  const [colorTheme, setColorTheme] = useState<'original' | 'blue' | 'pink' | 'red' | 'white' | 'purple' | 'black'>('original');  // Color theme
+  const [showSettings, setShowSettings] = useState<boolean>(false);  // Settings menu toggle
   const inputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);  // For auto-scroll to latest message
   const hasPlayedGreeting = useRef<boolean>(false);  // Track if greeting has played
@@ -47,6 +179,9 @@ const App: React.FC = () => {
     isSupported: sttSupported,
     error: speechError
   } = useSpeechRecognition();
+
+  // Get current theme colors
+  const theme = COLOR_THEMES[colorTheme];
 
   // Check for existing user on mount and load conversation history
   useEffect(() => {
@@ -671,14 +806,23 @@ const App: React.FC = () => {
         </div>
 
         {/* Main Console Body */}
-        <div className="bg-gradient-to-b from-[#5dcdce] via-[#4fb8b9] to-[#3fa4a5] rounded-[28px] p-6 shadow-2xl relative animate-appear border-4 border-[#3fa4a5]">
+        <div 
+          className="rounded-[28px] p-6 shadow-2xl relative animate-appear border-4"
+          style={{
+            background: `linear-gradient(to bottom, ${theme.body.primary}, ${theme.body.secondary}, ${theme.screen.border})`,
+            borderColor: theme.screen.border
+          }}
+        >
           {/* Status Light */}
           <div className="absolute top-4 right-4 w-3 h-3 bg-[#2ecc71] rounded-full shadow-[0_0_10px_rgba(46,204,113,0.8)] animate-pulse" />
           
           {/* Cartridge Slot */}
-          <div className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-3 bg-[#2d6d6e] rounded-sm shadow-inner flex items-center justify-center gap-0.5">
-            <div className="w-0.5 h-1.5 bg-[#0a3d3f] rounded-full"></div>
-            <div className="w-0.5 h-1.5 bg-[#0a3d3f] rounded-full"></div>
+          <div 
+            className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-3 rounded-sm shadow-inner flex items-center justify-center gap-0.5"
+            style={{ backgroundColor: theme.body.dark }}
+          >
+            <div className="w-0.5 h-1.5 rounded-full" style={{ backgroundColor: theme.body.darkest }}></div>
+            <div className="w-0.5 h-1.5 rounded-full" style={{ backgroundColor: theme.body.darkest }}></div>
             <div className="w-0.5 h-1.5 bg-[#0a3d3f] rounded-full"></div>
           </div>
 
@@ -694,7 +838,13 @@ const App: React.FC = () => {
           </div>
           
           {/* Screen */}
-          <div className="bg-gradient-to-b from-[#8ee4d4] to-[#6dd4c4] rounded-2xl p-5 mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] min-h-[200px] max-h-[400px] relative overflow-hidden border-4 border-[#3fa4a5]">
+          <div 
+            className="rounded-2xl p-5 mb-6 shadow-[inset_0_2px_10px_rgba(0,0,0,0.3)] min-h-[200px] max-h-[400px] relative overflow-hidden border-4"
+            style={{
+              background: `linear-gradient(to bottom, ${theme.screen.light}, ${theme.screen.main})`,
+              borderColor: theme.screen.border
+            }}
+          >
             {/* Scanline effect */}
             <div className="absolute inset-0 pointer-events-none bg-[repeating-linear-gradient(0deg,rgba(0,0,0,0.03)_0px,rgba(0,0,0,0.03)_2px,transparent_2px,transparent_4px)] animate-scanline" />
             
@@ -708,7 +858,7 @@ const App: React.FC = () => {
                 
                 {/* Mood Indicator */}
                 <div className="text-center mt-2 space-y-1">
-                  <div className="font-press-start text-[8px] text-[#2a5d5f] uppercase tracking-wider">
+                  <div className="font-press-start text-[8px] uppercase tracking-wider" style={{ color: theme.screen.text }}>
                     {isListening ? '🎤 LISTENING...' : isSpeaking ? '🔊 SPEAKING...' : MOOD_TEXTS[mood]}
                   </div>
                   {/* Chat Mode Badge */}
@@ -829,6 +979,17 @@ const App: React.FC = () => {
 
           {/* Voice Controls */}
           <div className="flex gap-2 mb-4">
+            {/* Settings Button */}
+            <button
+              onClick={() => {
+                setShowSettings(!showSettings);
+                soundEffects.playButtonClick();
+              }}
+              className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-lg font-press-start text-[8px] transition-all bg-gradient-to-b from-[#95a5a6] to-[#7f8c8d] text-white shadow-[0_4px_0_#5a6c6d] hover:-translate-y-0.5 active:translate-y-0.5 uppercase"
+            >
+              ⚙️ Settings
+            </button>
+            
             {/* Chat Mode Toggle */}
             <button
               onClick={toggleChatMode}
@@ -993,6 +1154,94 @@ const App: React.FC = () => {
           <div className="absolute bottom-5 left-5 w-[60px] h-[40px] rounded-lg opacity-40 bg-[repeating-linear-gradient(0deg,#2d6d6e_0px,#2d6d6e_3px,transparent_3px,transparent_6px)]" />
           <div className="absolute bottom-5 right-5 w-[60px] h-[40px] rounded-lg opacity-40 bg-[repeating-linear-gradient(0deg,#2d6d6e_0px,#2d6d6e_3px,transparent_3px,transparent_6px)]" />
         </div>
+
+        {/* Settings Modal */}
+        {showSettings && (
+          <div 
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+            onClick={() => setShowSettings(false)}
+          >
+            <div 
+              className="bg-gradient-to-b from-white to-gray-100 rounded-2xl p-6 max-w-md w-full shadow-2xl border-4"
+              style={{ borderColor: theme.screen.border }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="font-press-start text-sm" style={{ color: theme.screen.text }}>
+                  ⚙️ Settings
+                </h2>
+                <button
+                  onClick={() => setShowSettings(false)}
+                  className="text-2xl hover:scale-110 transition-transform"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Color Themes Section */}
+              <div className="mb-6">
+                <h3 className="font-press-start text-[10px] mb-3" style={{ color: theme.screen.text }}>
+                  🎨 BMO Color Theme
+                </h3>
+                <div className="grid grid-cols-4 gap-3">
+                  {(Object.keys(COLOR_THEMES) as Array<keyof typeof COLOR_THEMES>).map((themeName) => {
+                    const themeData = COLOR_THEMES[themeName];
+                    return (
+                      <button
+                        key={themeName}
+                        onClick={() => {
+                          setColorTheme(themeName);
+                          soundEffects.playButtonClick();
+                          console.log(`🎨 Theme changed to: ${themeData.name}`);
+                        }}
+                        className={`aspect-square rounded-xl border-4 transition-all hover:scale-110 active:scale-95 flex flex-col items-center justify-center gap-1 ${
+                          colorTheme === themeName
+                            ? 'border-yellow-400 shadow-lg shadow-yellow-400/50 scale-105'
+                            : 'border-gray-300 opacity-70 hover:opacity-100'
+                        }`}
+                        style={{
+                          background: `linear-gradient(135deg, ${themeData.body.primary} 0%, ${themeData.body.secondary} 100%)`
+                        }}
+                      >
+                        <div className="text-2xl">{themeData.emoji}</div>
+                        <div className="text-[8px] font-bold text-white text-center px-1" style={{
+                          textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+                        }}>
+                          {themeData.name}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Current Theme Info */}
+              <div 
+                className="p-3 rounded-lg mb-4"
+                style={{ backgroundColor: `${theme.body.primary}20` }}
+              >
+                <div className="text-center">
+                  <div className="text-2xl mb-1">{COLOR_THEMES[colorTheme].emoji}</div>
+                  <div className="font-press-start text-[10px]" style={{ color: theme.screen.text }}>
+                    Current: {COLOR_THEMES[colorTheme].name}
+                  </div>
+                </div>
+              </div>
+
+              {/* Close Button */}
+              <button
+                onClick={() => {
+                  setShowSettings(false);
+                  soundEffects.playButtonClick();
+                }}
+                className="w-full py-3 px-4 rounded-lg font-press-start text-[10px] transition-all bg-gradient-to-b from-[#2ecc71] to-[#27ae60] text-white shadow-lg hover:-translate-y-0.5 active:translate-y-0.5 uppercase"
+              >
+                ✓ Done
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
