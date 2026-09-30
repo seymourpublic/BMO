@@ -5,6 +5,8 @@ import { TypeBar } from './components/TypeBar';
 import { HistoryPanel } from './components/HistoryPanel';
 import { SettingsPanel } from './components/SettingsPanel';
 import { HAND_FOR_DIRECTION, RockPaperScissorsScreen, useRockPaperScissors } from './components/RockPaperScissors';
+import { HiddenGame } from './components/HiddenGame';
+import { EffectOverlays, FlashKind } from './components/EffectOverlays';
 import { useFishAudio } from './hooks/useFishAudio';
 import { useSpeechRecognition } from './hooks/useSpeechRecognition';
 import { useBMOConversation } from './hooks/useBMOConversation';
@@ -16,9 +18,13 @@ import { soundEffects } from './utils/sounds';
 import { bmoSongs } from './utils/songs';
 import { unlockIOSAudio } from './utils/iosAudio';
 import { COLOR_THEMES, ThemeName, loadTheme, saveTheme } from './utils/themes';
+import { PhraseEgg, createKonamiTracker } from './utils/easterEggs';
+import { ChatContext } from './utils/api';
 import './App.css';
 
 type Panel = 'none' | 'type' | 'history' | 'settings';
+// Special modes (only one at a time). Detective and Football change how BMO talks.
+type Mode = 'none' | 'detective' | 'football' | 'hiddenGame';
 
 const GREETING_HINT = 'Hi friend! Press the red button to talk to BMO.';
 // Captions longer than this shrink the face to make room
@@ -39,6 +45,19 @@ const noMelody = async () => {};
 
 const pickRandom = <T,>(items: T[]): T => items[Math.floor(Math.random() * items.length)];
 
+// Bedtime BMO: late-night hours (friend's local time)
+const isBedtime = (hour: number) => hour >= 22 || hour < 5;
+// Stranger alarm: sometimes, after being away this long
+const STRANGER_MIN_HOURS = 6;
+const STRANGER_CHANCE = 0.25;
+// Chance BMO sings for the special friend after saying hello
+const GREETING_SONG_CHANCE = 0.2;
+// How long to hold BMO's screen to meet Football
+const SCREEN_HOLD_MS = 700;
+const BATTERY_DOWN_MS = 3000;
+const FIREWORKS_MS = 3500;
+const todayString = () => new Date().toISOString().slice(0, 10);
+
 const App: React.FC = () => {
   const [themeName, setThemeName] = useState<ThemeName>(loadTheme);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -51,6 +70,15 @@ const App: React.FC = () => {
   const [look, setLook] = useState<LookDirection | null>(null);
   const [eyesClosed, setEyesClosed] = useState(false);
   const [motion, setMotion] = useState<BodyMotion>(null);
+  const [mode, setModeState] = useState<Mode>('none');
+  const [hiddenButton, setHiddenButton] = useState(false);
+  const [gamePlayId, setGamePlayId] = useState(0);
+  const [gameJumps, setGameJumps] = useState(0);
+  const [gameOver, setGameOver] = useState(false);
+  const [flash, setFlash] = useState<{ kind: FlashKind; id: number } | null>(null);
+  const [fireworks, setFireworks] = useState(false);
+  const [batteryLow, setBatteryLow] = useState(false);
+  const [hour, setHour] = useState(() => new Date().getHours());
 
   const theme = COLOR_THEMES[themeName];
   const captionRef = useRef<HTMLDivElement>(null);
@@ -58,6 +86,15 @@ const App: React.FC = () => {
   const dpadPressesRef = useRef<number[]>([]);
   const lookTimerRef = useRef(0);
   const motionTimerRef = useRef(0);
+  const modeRef = useRef<Mode>('none');
+  const konamiRef = useRef(createKonamiTracker());
+  const screenHoldRef = useRef({ timer: 0, fired: false });
+
+  // Mode lives in a ref too so a chat sent in the same moment sees the new mode
+  const setMode = useCallback((next: Mode) => {
+    modeRef.current = next;
+    setModeState(next);
+  }, []);
 
   const {
     speak, startQueue, enqueue, endQueue, isSpeaking, stop: stopSpeaking, prewarmAudio, getMouthLevel, getProgress
@@ -68,14 +105,29 @@ const App: React.FC = () => {
   } = useSpeechRecognition();
   const {
     memory, payload: memoryPayload, addMessages, recordVisit,
-    setProfileField, deleteNote, recordRps, forgetEverything
+    setProfileField, deleteNote, recordRps, forgetEverything,
+    markSpecial, recordGameScore, unlockKonami, markBathJoke
   } = useMemory();
+
+  // Easter-egg phrases the app handles (set in effect below, after the conversation hook exists)
+  const onEasterEggRef = useRef<(egg: PhraseEgg) => boolean>(() => false);
+  const getContext = useCallback((): ChatContext => {
+    const current = modeRef.current;
+    return {
+      mode: current === 'detective' || current === 'football' ? current : undefined,
+      hour: new Date().getHours()
+    };
+  }, []);
   const {
     mood, setMood, caption, setCaption, isThinking, isSinging, displayMessages,
-    send, tellStory, greet, sing, quickLine, interrupt, reset: resetConversation
+    send, tellStory, greet, sing, singForFriend, quickLine, interrupt, reset: resetConversation
   } = useBMOConversation({
     speak, startQueue, enqueue, endQueue, stopSpeaking,
-    voiceEnabled, memory: memoryPayload, initialHistory: memory.history, onMessages: addMessages
+    voiceEnabled, memory: memoryPayload, initialHistory: memory.history, onMessages: addMessages,
+    isSpecial: memory.special,
+    getContext,
+    onEasterEgg: egg => onEasterEggRef.current(egg),
+    onRecognised: markSpecial
   });
 
   const game = useRockPaperScissors({
@@ -85,7 +137,7 @@ const App: React.FC = () => {
     }, [recordRps, quickLine])
   });
 
-  const busy = isListening || isThinking || isSpeaking || isSinging || waking || game.active || panel !== 'none';
+  const busy = isListening || isThinking || isSpeaking || isSinging || waking || game.active || panel !== 'none' || mode !== 'none';
 
   // Briefly point BMO's face somewhere
   const glance = useCallback((direction: LookDirection | null, ms: number) => {
@@ -101,6 +153,99 @@ const App: React.FC = () => {
     requestAnimationFrame(() => setMotion(next));
     motionTimerRef.current = window.setTimeout(() => setMotion(null), ms);
   }, []);
+
+  // --- Easter eggs ---
+  const flashScreen = useCallback((kind: FlashKind) => setFlash({ kind, id: Date.now() }), []);
+
+  const danceTo = useCallback((line: string) => {
+    soundEffects.playDance();
+    moveBody('dance', 1500);
+    quickLine(line, 'excited', true);
+  }, [moveBody, quickLine]);
+
+  const leaveMode = useCallback(() => {
+    const was = modeRef.current;
+    setMode('none');
+    setHiddenButton(false);
+    if (was === 'football') quickLine('Phew! BMO is back! Football is so sassy.', 'happy', true);
+    if (was === 'detective') quickLine('Case closed. BMO hangs up the detective hat.', 'happy', true);
+    if (was === 'hiddenGame') quickLine('BMO is so glad you made it out of the game safely!', 'happy', true);
+  }, [setMode, quickLine]);
+
+  const meetFootball = useCallback((announce: boolean) => {
+    interrupt();
+    setMode('football');
+    if (announce) quickLine('Football here! Finally, somebody let me out of the mirror!', 'excited', true);
+  }, [interrupt, setMode, quickLine]);
+
+  // Phrases the app handles. Return true if the chat shouldn't also happen.
+  onEasterEggRef.current = (egg: PhraseEgg) => {
+    switch (egg) {
+      case 'clickIt':
+        danceTo('CLICK IT CLICK IT! Click it, click it, click it!');
+        return true;
+      case 'clockIt':
+        danceTo("No no no, it's CLICK IT CLICK IT!");
+        return true;
+      case 'chop':
+        interrupt();
+        flashScreen('chop');
+        moveBody('wiggle', 350);
+        soundEffects.playEmote('excited');
+        quickLine("BMO CHOP! If this were a real attack, you'd be dead.", 'excited', true);
+        return true;
+      case 'detective':
+        setMode('detective');
+        return false;  // BMO answers in noir style
+      case 'caseClosed':
+        if (modeRef.current === 'detective') setMode('none');
+        return false;
+      case 'football':
+        meetFootball(false);
+        return false;  // Football answers
+      case 'footballBye':
+        if (modeRef.current === 'football') setMode('none');
+        return false;
+      default:
+        return false;
+    }
+  };
+
+  const celebrateKonami = useCallback(() => {
+    interrupt();
+    setFireworks(true);
+    window.setTimeout(() => setFireworks(false), FIREWORKS_MS);
+    unlockKonami();
+    soundEffects.playDance();
+    moveBody('dance', 1500);
+    quickLine('Cheat code activated! BMO is invincible! Check the rainbow in Settings!', 'excited', true);
+  }, [interrupt, unlockKonami, moveBody, quickLine]);
+
+  // Hidden button under the D-pad
+  const revealHiddenButton = useCallback(() => {
+    if (!awake || dozing || mode !== 'none') return;
+    interrupt();
+    setHiddenButton(true);
+    soundEffects.playEmote('gasp');
+    quickLine("No! Don't press that! You'll be transported into BMO's main brain game frame! It's far too dangerous!", 'surprised', true);
+  }, [awake, dozing, mode, interrupt, quickLine]);
+
+  const enterHiddenGame = useCallback(() => {
+    interrupt();
+    setHiddenButton(false);
+    setGameOver(false);
+    setMode('hiddenGame');
+    setGamePlayId(id => id + 1);
+    soundEffects.playDance();
+  }, [interrupt, setMode]);
+
+  const onHiddenGameOver = useCallback((score: number) => {
+    setGameOver(true);
+    const newBest = score > memory.stats.gameBest;
+    recordGameScore(score);
+    soundEffects.playEmote(newBest ? 'excited' : 'sad');
+    quickLine(newBest ? `NEW HIGH SCORE! ${score}! BMO is so proud!` : 'Oh no! The monsters got you!', newBest ? 'excited' : 'sad', true);
+  }, [memory.stats.gameBest, recordGameScore, quickLine]);
 
   // --- Idle life ---
   const onIdleAction = useCallback((action: IdleAction) => {
@@ -158,9 +303,26 @@ const App: React.FC = () => {
     if (greetedRef.current) return;
     greetedRef.current = true;
     const visit = recordVisit();
-    const greeted = await greet({ ...visit, hour: new Date().getHours() });
+    const now = new Date();
+
+    // Stranger alarm: sometimes BMO doesn't recognise you after a long time away
+    if (visit.visits > 1 && visit.hoursAway >= STRANGER_MIN_HOURS && Math.random() < STRANGER_CHANCE) {
+      flashScreen('alarm');
+      await quickLine('STRANGER! STRANGER!', 'surprised', true);
+      await quickLine("...oh. Excuse me. It's you!", 'happy', true);
+    }
+
+    // After midnight, once a night: Finn's bath-time alarm
+    if (now.getHours() < 5 && memory.lastBathJoke !== todayString()) {
+      markBathJoke(todayString());
+      await quickLine("Beep beep! It's Finn's bath time! ...Oh. Wrong alarm.", 'excited', true);
+    }
+
+    const greeted = await greet({ ...visit, hour: now.getHours() });
     if (!greeted) setCaption(GREETING_HINT);
-  }, [prewarmAudio, sing, setCaption, recordVisit, greet]);
+    if (greeted && memory.special && Math.random() < GREETING_SONG_CHANCE) await singForFriend();
+  }, [prewarmAudio, sing, setCaption, recordVisit, greet, flashScreen, quickLine, memory.lastBathJoke, memory.special,
+      markBathJoke, singForFriend]);
 
   const wake = useCallback(async () => {
     if (awake || waking) return;
@@ -196,6 +358,20 @@ const App: React.FC = () => {
   // --- Buttons ---
   const pressRed = useCallback(() => {
     if (wakeIfNeeded()) return;
+    if (konamiRef.current.expects('red')) {
+      if (konamiRef.current.press('red')) celebrateKonami();
+      return;
+    }
+    konamiRef.current.press('red');
+    if (modeRef.current === 'hiddenGame') {
+      if (gameOver) leaveMode();
+      else setGameJumps(j => j + 1);
+      return;
+    }
+    if (modeRef.current !== 'none') {
+      leaveMode();
+      return;
+    }
     if (game.active) {
       game.quit();
       soundEffects.playButtonClick();
@@ -217,7 +393,8 @@ const App: React.FC = () => {
     soundEffects.playVoiceStart();
     setCaption('');
     startListening();
-  }, [wakeIfNeeded, game, quickLine, isListening, cancelListening, canListen, interrupt, startListening, setCaption]);
+  }, [wakeIfNeeded, celebrateKonami, gameOver, leaveMode, game, quickLine, isListening, cancelListening, canListen, interrupt,
+      startListening, setCaption]);
 
   const pressDirection = useCallback((direction: LookDirection) => {
     if (game.active) {
@@ -243,21 +420,36 @@ const App: React.FC = () => {
 
   const pressOther = useCallback((button: OtherButton) => {
     if (wakeIfNeeded()) return;
+    if (konamiRef.current.expects(button)) {
+      konamiRef.current.press(button);  // Part of the code, not a normal press
+      return;
+    }
+    konamiRef.current.press(button);
     if (isThinking) return;
 
+    if (modeRef.current === 'hiddenGame') {
+      if (button === 'triangle' && gameOver) {
+        setGameOver(false);
+        setGamePlayId(id => id + 1);  // Play again
+      }
+      return;
+    }
+
     if (button === 'green') {
+      if (modeRef.current !== 'none') setMode('none');
       if (game.active) game.quit();
       soundEffects.playButtonClick();
       tellStory();  // Replaces any reply in progress
     } else if (button === 'triangle') {
       if (game.active && game.phase !== 'reveal') return;
+      if (modeRef.current !== 'none') setMode('none');
       interrupt();
       game.start();
       setMood('excited');
     } else {
       pressDirection(button);
     }
-  }, [wakeIfNeeded, isThinking, game, interrupt, tellStory, pressDirection, setMood]);
+  }, [wakeIfNeeded, isThinking, gameOver, setMode, game, interrupt, tellStory, pressDirection, setMood]);
 
   // Tapping BMO's screen or body
   const tapBMO = useCallback(() => {
@@ -265,11 +457,37 @@ const App: React.FC = () => {
     if (dozing) { wakeFromDoze(); return; }
     if (audioBlocked) { unlockAndGreet(); return; }
     idle.bump();
-    if (busy) return;
+    // Pokes still count while BMO says a poke line, so the battery joke is reachable
+    if (isListening || isThinking || isSinging || waking || game.active || mode !== 'none' || panel !== 'none' || batteryLow) return;
     const reaction = poke();
     soundEffects.playEmote(reaction.sound);
+    if (reaction.batteryLow) {
+      interrupt();
+      setBatteryLow(true);
+      quickLine(reaction.line, reaction.mood, true);
+      window.setTimeout(() => {
+        setBatteryLow(false);
+        soundEffects.playDance();
+        quickLine('BMO always bounces back!', 'excited', true);
+      }, BATTERY_DOWN_MS);
+      return;
+    }
+    if (isSpeaking) return;  // Just the sound while BMO is still talking
     quickLine(reaction.line, reaction.mood, reaction.spoken);
-  }, [awake, dozing, audioBlocked, busy, wake, wakeFromDoze, unlockAndGreet, idle, poke, quickLine]);
+  }, [awake, dozing, audioBlocked, isListening, isThinking, isSinging, isSpeaking, waking, game.active, mode, panel, batteryLow,
+      wake, wakeFromDoze, unlockAndGreet, idle, poke, interrupt, quickLine]);
+
+  // Holding BMO's screen lets Football out of the mirror
+  const startScreenHold = useCallback(() => {
+    clearTimeout(screenHoldRef.current.timer);
+    screenHoldRef.current.fired = false;
+    if (!awake || dozing || mode !== 'none') return;
+    screenHoldRef.current.timer = window.setTimeout(() => {
+      screenHoldRef.current.fired = true;
+      meetFootball(true);
+    }, SCREEN_HOLD_MS);
+  }, [awake, dozing, mode, meetFootball]);
+  const cancelScreenHold = useCallback(() => clearTimeout(screenHoldRef.current.timer), []);
 
   const sendTyped = useCallback((text: string) => {
     idle.bump();
@@ -277,6 +495,12 @@ const App: React.FC = () => {
     if (game.active) game.quit();
     send(text);  // Replaces any reply in progress
   }, [idle, send, game]);
+
+  // Keep the hour current for bedtime BMO
+  useEffect(() => {
+    const timer = window.setInterval(() => setHour(new Date().getHours()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
 
   // When listening ends with something heard, send it
   useEffect(() => {
@@ -376,6 +600,12 @@ const App: React.FC = () => {
     : isListening ? (transcript ? `“${transcript}…”` : 'BMO is listening…')
     : caption;
   const asleep = !awake || dozing;
+  const screenEffects = [
+    asleep ? 'bmo-asleep' : '',
+    mode === 'detective' ? 'bmo-noir' : '',
+    batteryLow ? 'bmo-battery-low' : '',
+    awake && !asleep && isBedtime(hour) ? 'bmo-bedtime' : ''
+  ].join(' ');
 
   return (
     <div className="min-h-[100dvh] flex flex-col items-center justify-center gap-6 px-4 py-8 overflow-hidden bg-gradient-to-b from-[#bfe9dd] to-[#7fcfbf] text-[#173a33]">
@@ -394,6 +624,8 @@ const App: React.FC = () => {
         </div>
       )}
 
+      <EffectOverlays flash={flash} fireworks={fireworks} />
+
       <BMOBody
         theme={theme}
         listening={isListening}
@@ -401,15 +633,45 @@ const App: React.FC = () => {
         onRed={pressRed}
         onOtherButton={pressOther}
         onBodyTap={tapBMO}
+        onDpadCenterHold={revealHiddenButton}
+        hiddenButton={hiddenButton}
+        onHiddenButton={enterHiddenGame}
         motion={motion}
       >
         <button
           type="button"
-          className={`absolute inset-0 w-full h-full flex flex-col cursor-default ${asleep ? 'bmo-asleep' : ''}`}
-          onClick={tapBMO}
+          className={`absolute inset-0 w-full h-full flex flex-col cursor-default touch-none ${screenEffects}`}
+          onClick={() => {
+            // A long press (Football) shouldn't also count as a poke
+            if (screenHoldRef.current.fired) {
+              screenHoldRef.current.fired = false;
+              return;
+            }
+            tapBMO();
+          }}
+          onPointerDown={startScreenHold}
+          onPointerUp={cancelScreenHold}
+          onPointerLeave={cancelScreenHold}
+          onContextMenu={e => e.preventDefault()}
           aria-label={!awake ? 'Wake BMO' : dozing ? 'BMO is dozing. Tap to wake' : 'Poke BMO'}
         >
-          {game.active ? (
+          {mode === 'detective' && <div className="absolute inset-0 pointer-events-none bmo-rain" aria-hidden="true" />}
+          {mode === 'football' && (
+            <div className="absolute inset-0 pointer-events-none bmo-mirror-world" aria-hidden="true">
+              <span className="absolute top-[4%] left-1/2 -translate-x-1/2 text-[clamp(9px,2.6vw,11px)] font-extrabold tracking-[0.3em]" style={{ color: theme.face }}>
+                FOOTBALL
+              </span>
+            </div>
+          )}
+          {mode === 'hiddenGame' ? (
+            <HiddenGame
+              color={theme.face}
+              best={memory.stats.gameBest}
+              jumps={gameJumps}
+              playId={gamePlayId}
+              onGameOver={onHiddenGameOver}
+            />
+          ) : game.active ? (
             <RockPaperScissorsScreen
               game={game}
               score={memory.stats.rps}
@@ -419,14 +681,14 @@ const App: React.FC = () => {
             />
           ) : (
             <>
-              <div className={`w-[78%] mx-auto transition-all duration-300 ${
+              <div className={`w-[78%] mx-auto transition-all duration-300 ${mode === 'football' ? 'bmo-mirror' : ''} ${
                 asleep || !screenCaption ? 'h-[70%] mt-[15%]'
                   : screenCaption.length > LONG_CAPTION ? 'h-[34%] mt-[3%]'
                   : 'h-[52%] mt-[6%]'
               }`}>
                 <BMOFace
                   mood={mood}
-                  look={look}
+                  look={mode === 'football' ? 'left' : look}
                   eyesClosed={eyesClosed}
                   faceColor={theme.face}
                   asleep={asleep}
@@ -485,6 +747,7 @@ const App: React.FC = () => {
         <SettingsPanel
           themeName={themeName}
           onThemeChange={changeTheme}
+          secretsUnlocked={memory.stats.konami}
           voiceEnabled={voiceEnabled}
           onVoiceChange={changeVoice}
           profile={memory.profile}

@@ -1,5 +1,5 @@
 import React from 'react';
-import { COLOR_THEMES, ThemeName } from '../utils/themes';
+import { COLOR_THEMES, SECRET_THEMES, ThemeName } from '../utils/themes';
 import { Sheet } from './Sheet';
 import { AboutYouPanel } from './AboutYouPanel';
 import { Profile, ProfileField } from '../utils/memory';
@@ -7,6 +7,7 @@ import { Profile, ProfileField } from '../utils/memory';
 interface SettingsPanelProps {
   themeName: ThemeName;
   onThemeChange: (theme: ThemeName) => void;
+  secretsUnlocked: boolean;  // Show secret themes (Konami code found)
   voiceEnabled: boolean;
   onVoiceChange: (enabled: boolean) => void;
   profile: Profile;
@@ -18,13 +19,15 @@ interface SettingsPanelProps {
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
-  themeName, onThemeChange, voiceEnabled, onVoiceChange,
+  themeName, onThemeChange, secretsUnlocked, voiceEnabled, onVoiceChange,
   profile, notes, onProfileChange, onDeleteNote, onForget, onClose
 }) => (
   <Sheet title="Settings" onClose={onClose}>
     <h3 className="text-sm font-bold mb-2">BMO's colour</h3>
     <div className="grid grid-cols-4 gap-3 mb-6">
-      {(Object.keys(COLOR_THEMES) as ThemeName[]).map(name => {
+      {(Object.keys(COLOR_THEMES) as ThemeName[])
+        .filter(name => secretsUnlocked || !SECRET_THEMES.includes(name))
+        .map(name => {
         const t = COLOR_THEMES[name];
         const selected = name === themeName;
         return (

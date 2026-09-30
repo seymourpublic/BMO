@@ -8,6 +8,9 @@ interface CacheEntry {
   ttl: number;
 }
 
+// How long to wait for IndexedDB to open before carrying on without it
+const OPEN_TIMEOUT_MS = 1500;
+
 class PersistentCache {
   private memoryCache = new Map<string, CacheEntry>();
   private db: IDBDatabase | null = null;
@@ -24,21 +27,44 @@ class PersistentCache {
   private async init(): Promise<void> {
     if (this.initPromise) return this.initPromise;
     
-    this.initPromise = new Promise((resolve, reject) => {
+    // Never rejects and never waits long: if IndexedDB fails, is blocked, or hangs
+    // (it can, e.g. in some private modes), BMO just uses the memory cache.
+    this.initPromise = new Promise((resolve) => {
       if (typeof indexedDB === 'undefined') {
         console.warn('IndexedDB not available, using memory cache only');
         resolve();
         return;
       }
 
-      const request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+      const giveUp = window.setTimeout(() => {
+        console.warn('IndexedDB is taking too long to open, using memory cache only');
+        resolve();
+      }, OPEN_TIMEOUT_MS);
+
+      let request: IDBOpenDBRequest;
+      try {
+        request = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+      } catch (error) {
+        console.warn('IndexedDB unavailable, using memory cache only:', error);
+        clearTimeout(giveUp);
+        resolve();
+        return;
+      }
 
       request.onerror = () => {
-        console.error('Failed to open IndexedDB');
-        reject(request.error);
+        console.warn('Failed to open IndexedDB, using memory cache only:', request.error);
+        clearTimeout(giveUp);
+        resolve();
+      };
+
+      request.onblocked = () => {
+        console.warn('IndexedDB is blocked, using memory cache only');
+        clearTimeout(giveUp);
+        resolve();
       };
 
       request.onsuccess = () => {
+        clearTimeout(giveUp);
         this.db = request.result;
         console.log('✅ IndexedDB cache initialized');
         resolve();

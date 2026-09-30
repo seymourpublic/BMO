@@ -5,7 +5,9 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Anthropic from '@anthropic-ai/sdk';
-import { BMO_PERSONALITY, buildMemoryBlock, buildGreetingTurn, REMEMBER_PROMPT } from './personality.js';
+import {
+  BMO_PERSONALITY, buildMemoryBlock, buildGreetingTurn, buildModeBlock, buildTimeBlock, buildSpecialBlock, REMEMBER_PROMPT
+} from './personality.js';
 
 // ES modules fix for __dirname
 const __filename = fileURLToPath(import.meta.url);
@@ -13,6 +15,32 @@ const __dirname = path.dirname(__filename);
 
 // Load environment variables
 dotenv.config();
+
+// The special friend BMO was made for. Private: from the BMO_SPECIAL_JSON env var (Railway),
+// else the git-ignored special.local.js, else the placeholder special.example.js.
+async function loadSpecialConfig() {
+  if (process.env.BMO_SPECIAL_JSON) {
+    try {
+      console.log('💝 Special friend config loaded from BMO_SPECIAL_JSON');
+      return JSON.parse(process.env.BMO_SPECIAL_JSON);
+    } catch (error) {
+      console.error('❌ BMO_SPECIAL_JSON is not valid JSON:', error.message);
+    }
+  }
+  for (const file of ['./special.local.js', './special.example.js']) {
+    try {
+      const config = (await import(file)).default;
+      console.log(`💝 Special friend config loaded from ${file}`);
+      return config;
+    } catch {
+      // Try the next source
+    }
+  }
+  return null;
+}
+const special = await loadSpecialConfig();
+const isSpecialName = name =>
+  !!special && typeof name === 'string' && name.trim().toLowerCase() === special.friendName.toLowerCase();
 
 // Anthropic client (reads ANTHROPIC_API_KEY; retries network errors, 429s and 5xx).
 // Only created when the key exists so a missing key can't stop the server starting;
@@ -329,8 +357,19 @@ const GREETING_MAX_TOKENS = 150;
 
 // Validate a chat request and build what to send to Claude.
 // Sends an error response and returns null if the request is invalid.
+const CHAT_MODES = ['detective', 'football'];
+
 function prepareChat(req, res) {
   const greeting = validateGreeting(req.body.greeting);
+  const { mode, hour, special: isSpecial, justRecognised } = req.body;
+  if (mode !== undefined && mode !== null && !CHAT_MODES.includes(mode)) {
+    res.status(400).json({ error: `Mode must be one of: ${CHAT_MODES.join(', ')}` });
+    return null;
+  }
+  if (hour !== undefined && hour !== null && !(Number.isInteger(hour) && hour >= 0 && hour <= 23)) {
+    res.status(400).json({ error: 'Hour must be a whole number from 0 to 23' });
+    return null;
+  }
   const { memory, error: memoryError } = validateMemory(req.body.memory);
   if (memoryError) {
     res.status(400).json({ error: memoryError });
@@ -361,13 +400,16 @@ function prepareChat(req, res) {
     return null;
   }
 
+  const extras = buildModeBlock(mode) + buildTimeBlock(hour ?? greeting?.hour) +
+    (isSpecial === true ? buildSpecialBlock(special, justRecognised === true) : '');
   return {
     greeting,
     memory,
     messages,
-    system: BMO_PERSONALITY + buildMemoryBlock(memory),
+    // Football takes over BMO's identity, so its instructions also go first where they carry the most weight
+    system: (mode === 'football' ? `${buildModeBlock(mode).trim()}\n\n` : '') + BMO_PERSONALITY + buildMemoryBlock(memory) + extras,
     // Greetings aren't cached so BMO says hello differently each time
-    cacheKey: greeting ? null : generateCacheKey(messages, JSON.stringify(memory)),
+    cacheKey: greeting ? null : generateCacheKey(messages, JSON.stringify({ memory, extras })),
     maxTokens: greeting ? GREETING_MAX_TOKENS : REPLY_MAX_TOKENS
   };
 }
@@ -499,6 +541,35 @@ app.post('/api/chat', async (req, res) => {
       message: error instanceof Error ? error.message : 'Unknown error'
     });
   }
+});
+
+// Is this name the special friend BMO was made for?
+app.post('/api/special/recognise', (req, res) => {
+  if (!allowChatRequest(req.ip)) {
+    return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+  }
+  const { name } = req.body;
+  if (typeof name !== 'string' || name.length > MEMORY_LIMITS.name) {
+    return res.status(400).json({ error: 'Name must be a short text' });
+  }
+  if (!isSpecialName(name)) return res.json({ special: false });
+  console.log('💝 Special friend recognised');
+  res.json({ special: true, name: special.friendName, pronouns: special.friendPronouns });
+});
+
+// Lyrics and melody for one of the special songs.
+// The original song has generic trigger phrases, so it doesn't need recognition.
+app.post('/api/special/song', (req, res) => {
+  if (!allowChatRequest(req.ip)) {
+    return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+  }
+  const { id, special: isSpecial } = req.body;
+  const song = special?.songs.find(s => s.id === id);
+  if (!song) return res.status(404).json({ error: 'BMO does not know that song' });
+  if (id !== 'original' && isSpecial !== true) {
+    return res.status(400).json({ error: 'That song is only for someone special' });
+  }
+  res.json({ lyrics: song.lyrics, melody: song.melody });
 });
 
 // Pull the first JSON object out of a model reply (tolerates stray text around it)

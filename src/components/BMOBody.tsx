@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { BMOTheme } from '../utils/themes';
 
 export type OtherButton = 'up' | 'down' | 'left' | 'right' | 'triangle' | 'green';
@@ -11,6 +11,9 @@ interface BMOBodyProps {
   onRed: () => void;
   onOtherButton: (button: OtherButton) => void;
   onBodyTap?: () => void;  // Tapping the body itself (not a button or the screen)
+  onDpadCenterHold?: () => void;  // Long-press on the middle of the D-pad (reveals the hidden button)
+  hiddenButton?: boolean;         // The secret red button under the D-pad is showing
+  onHiddenButton?: () => void;
   motion?: BodyMotion;
   children: React.ReactNode;  // Screen contents
 }
@@ -21,6 +24,8 @@ const TRIANGLE = '#6fcdf0', TRIANGLE_EDGE = '#3b8fb0';
 const GREEN = '#43b649', GREEN_EDGE = '#2a7d30';
 const RED = '#e43d3d', RED_EDGE = '#9e2323';
 const DOT = '#2d4f9e', DOT_EDGE = '#1c3570';
+// How long to hold the middle of the D-pad to find the secret button
+const DPAD_HOLD_MS = 800;
 
 const DPadArm: React.FC<{ dir: OtherButton; className: string; onPress: (b: OtherButton) => void }> = ({ dir, className, onPress }) => (
   <button
@@ -33,8 +38,17 @@ const DPadArm: React.FC<{ dir: OtherButton; className: string; onPress: (b: Othe
 );
 
 export const BMOBody: React.FC<BMOBodyProps> = ({
-  theme, listening, redDisabled, onRed, onOtherButton, onBodyTap, motion, children
+  theme, listening, redDisabled, onRed, onOtherButton, onBodyTap, onDpadCenterHold, hiddenButton, onHiddenButton,
+  motion, children
 }) => {
+  // Long-press detection for the middle of the D-pad
+  const holdTimerRef = useRef(0);
+  const startHold = () => {
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = window.setTimeout(() => onDpadCenterHold?.(), DPAD_HOLD_MS);
+  };
+  const cancelHold = () => clearTimeout(holdTimerRef.current);
+
   const limb = { background: theme.bodyShade, borderColor: theme.outline };
 
   // Width is also limited by screen height so BMO + menu fit without scrolling
@@ -77,7 +91,24 @@ export const BMOBody: React.FC<BMOBodyProps> = ({
             <DPadArm dir="down" onPress={onOtherButton} className="left-1/3 bottom-0 w-1/3 h-[38%] rounded-b-[4px]" />
             <DPadArm dir="left" onPress={onOtherButton} className="top-1/3 left-0 h-1/3 w-[38%] rounded-l-[4px]" />
             <DPadArm dir="right" onPress={onOtherButton} className="top-1/3 right-0 h-1/3 w-[38%] rounded-r-[4px]" />
-            <div className="absolute left-1/3 top-1/3 w-1/3 h-1/3" style={{ background: YELLOW }} />
+            <div
+              className="absolute left-1/3 top-1/3 w-1/3 h-1/3 touch-none"
+              style={{ background: YELLOW }}
+              onPointerDown={startHold}
+              onPointerUp={cancelHold}
+              onPointerLeave={cancelHold}
+              onContextMenu={e => e.preventDefault()}
+            >
+              {hiddenButton && (
+                <button
+                  type="button"
+                  aria-label="Secret red button"
+                  onClick={onHiddenButton}
+                  className="absolute inset-[18%] rounded-full border-2 animate-pulse"
+                  style={{ background: RED, borderColor: RED_EDGE }}
+                />
+              )}
+            </div>
           </div>
 
           <div className="relative w-[46%] aspect-[4/3]">

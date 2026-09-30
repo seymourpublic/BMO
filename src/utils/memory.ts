@@ -23,8 +23,12 @@ export interface BMOMemory {
     visits: number;
     lastVisit: number;  // ms timestamp, 0 = never
     rps: { friend: number; bmo: number; ties: number };
+    gameBest: number;   // Best score in the hidden-button game
+    konami: boolean;    // Konami code found: unlocks Rainbow BMO
   };
   pendingSince: number;  // Index into history of the first message not yet summarised
+  special: boolean;      // This is the special friend BMO was made for
+  lastBathJoke: string;  // Date (YYYY-MM-DD) of the last "Finn's bath time" joke
 }
 
 // What gets sent to the backend with each chat (matches server limits)
@@ -41,8 +45,10 @@ export const emptyMemory = (): BMOMemory => ({
   userEdited: { name: false, pronouns: false, personality: false },
   notes: [],
   history: [],
-  stats: { visits: 0, lastVisit: 0, rps: { friend: 0, bmo: 0, ties: 0 } },
-  pendingSince: 0
+  stats: { visits: 0, lastVisit: 0, rps: { friend: 0, bmo: 0, ties: 0 }, gameBest: 0, konami: false },
+  pendingSince: 0,
+  special: false,
+  lastBathJoke: ''
 });
 
 export const loadMemory = (): BMOMemory => {

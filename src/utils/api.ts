@@ -38,8 +38,19 @@ const throwForStatus = async (response: Response) => {
   throw new Error(CONFUSED);
 };
 
+export type ChatMode = 'detective' | 'football';
+
+// Extra context that changes how BMO replies (all validated by the server)
+export interface ChatContext {
+  mode?: ChatMode;
+  hour?: number;            // Friend's local hour, for bedtime BMO
+  special?: boolean;        // Talking with the special friend BMO was made for
+  justRecognised?: boolean; // The special friend has just introduced themselves
+}
+
 interface StreamOptions {
   history?: Message[];
+  context?: ChatContext;
   greeting?: { hoursAway: number; hour: number; visits: number };
   memory: MemoryPayload | null;
   onText: (delta: string) => void;  // Called with each new piece of the reply
@@ -48,9 +59,9 @@ interface StreamOptions {
 
 // Stream BMO's reply as it's written. Resolves with the full reply text.
 // If the connection drops after some text arrived, resolves with what arrived.
-export const streamChat = async ({ history, greeting, memory, onText, signal }: StreamOptions): Promise<string> => {
-  // Normal chats can come from the device cache (greetings are always fresh)
-  const cacheInput = history ? { history, memory } : null;
+export const streamChat = async ({ history, greeting, memory, onText, signal, context = {} }: StreamOptions): Promise<string> => {
+  // Normal chats can come from the device cache (greetings and first meetings are always fresh)
+  const cacheInput = history && !context.justRecognised ? { history, memory, context } : null;
   if (cacheInput) {
     const cached = await persistentCache.get(cacheInput);
     if (cached) {
@@ -60,7 +71,8 @@ export const streamChat = async ({ history, greeting, memory, onText, signal }: 
     }
   }
 
-  const response = await postJson('/api/chat/stream', greeting ? { greeting, memory } : { messages: history, memory }, { signal });
+  const body = greeting ? { greeting, memory, ...context } : { messages: history, memory, ...context };
+  const response = await postJson('/api/chat/stream', body, { signal });
   await throwForStatus(response);
   if (!response.body) throw new Error(CONFUSED);
 
@@ -119,4 +131,18 @@ export const rememberConversation = async (
   await throwForStatus(response);
   const data = await response.json();
   return data.memory as MemoryPayload;
+};
+
+// Is this the special friend BMO was made for? The name is checked on the server.
+export const recogniseFriend = async (name: string): Promise<{ special: boolean; name?: string; pronouns?: string }> => {
+  const response = await postJson('/api/special/recognise', { name });
+  if (!response.ok) return { special: false };
+  return response.json();
+};
+
+// Lyrics + melody for a special song (kept on the server, not in this code)
+export const fetchSong = async (id: string, special: boolean): Promise<{ lyrics: string; melody: string } | null> => {
+  const response = await postJson('/api/special/song', { id, special });
+  if (!response.ok) return null;
+  return response.json();
 };

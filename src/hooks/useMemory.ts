@@ -103,6 +103,28 @@ export const useMemory = () => {
     update(m => ({ ...m, stats: { ...m.stats, rps: { ...m.stats.rps, [result]: m.stats.rps[result] + 1 } } }));
   }, [update]);
 
+  // The special friend introduced themselves: remember who they are (their edits still win later)
+  const markSpecial = useCallback((name: string, pronouns: string) => {
+    update(m => ({
+      ...m,
+      special: true,
+      profile: { ...m.profile, name, pronouns },
+      userEdited: { ...m.userEdited, name: true, pronouns: true }
+    }));
+  }, [update]);
+
+  const recordGameScore = useCallback((score: number) => {
+    update(m => score > m.stats.gameBest ? { ...m, stats: { ...m.stats, gameBest: score } } : m);
+  }, [update]);
+
+  const unlockKonami = useCallback(() => {
+    update(m => ({ ...m, stats: { ...m.stats, konami: true } }));
+  }, [update]);
+
+  const markBathJoke = useCallback((date: string) => {
+    update(m => ({ ...m, lastBathJoke: date }));
+  }, [update]);
+
   // Wipe everything BMO knows, including cached replies that might mention it
   const forgetEverything = useCallback(() => {
     clearMemory();
@@ -120,6 +142,10 @@ export const useMemory = () => {
     setProfileField,
     deleteNote,
     recordRps,
+    markSpecial,
+    recordGameScore,
+    unlockKonami,
+    markBathJoke,
     forgetEverything
   };
 };

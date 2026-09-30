@@ -100,3 +100,67 @@ body {
     animation: none;
   }
 }
+
+/* ---------- Easter eggs ---------- */
+
+/* Detective BMO Noire: black and white with rain */
+.bmo-noir {
+  filter: grayscale(1) contrast(1.15);
+}
+@keyframes bmo-rain {
+  from { background-position: 0 0; }
+  to   { background-position: -20px 120px; }
+}
+.bmo-rain {
+  background-image: repeating-linear-gradient(105deg, transparent 0 9px, rgba(40, 40, 40, 0.25) 9px 10px);
+  background-size: 40px 60px;
+  animation: bmo-rain 0.5s linear infinite;
+}
+
+/* Football in the mirror: flipped face, different tint */
+.bmo-mirror {
+  transform: scaleX(-1);
+  filter: hue-rotate(160deg) saturate(1.4);
+}
+
+/* Full-screen flashes (BMO Chop = white, stranger alarm = red) */
+@keyframes bmo-flash {
+  0%, 100% { opacity: 0; }
+  15%      { opacity: 0.85; }
+}
+.bmo-flash {
+  animation: bmo-flash 0.5s ease-out;
+}
+.bmo-flash-alarm {
+  animation: bmo-flash 0.5s ease-out 3;
+}
+
+/* Battery low: the screen fades out, then comes back */
+.bmo-battery-low {
+  filter: brightness(0.15) saturate(0.3);
+  transition: filter 1.2s ease-in;
+}
+
+/* Bedtime: the screen is a little dimmer and bluer */
+.bmo-bedtime {
+  filter: brightness(0.82) saturate(0.85) hue-rotate(-12deg);
+}
+
+/* Konami fireworks */
+@keyframes bmo-firework {
+  0%   { transform: translateY(40px) scale(0.3); opacity: 0; }
+  30%  { opacity: 1; }
+  100% { transform: translateY(-160px) scale(1.6); opacity: 0; }
+}
+.bmo-firework {
+  animation: bmo-firework 1.6s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bmo-rain, .bmo-flash, .bmo-flash-alarm, .bmo-firework { animation: none; }
+}
+
+/* Football's mirror world: a purple shimmer over BMO's screen */
+.bmo-mirror-world {
+  background: linear-gradient(135deg, rgba(150, 90, 230, 0.28), rgba(90, 170, 255, 0.18));
+}

@@ -18,7 +18,19 @@ export const COLOR_THEMES = {
   white:    { name: 'White',  body: '#eef2f2', bodyShade: '#cfd8d8', outline: '#7b8a8a', screen: '#e2f7ea', face: '#1d2b2b' },
   purple:   { name: 'Purple', body: '#a98bd8', bodyShade: '#8d6fc0', outline: '#4a2f78', screen: '#ece2ff', face: '#22133d' },
   black:    { name: 'Black',  body: '#3b4652', bodyShade: '#2a333c', outline: '#11161b', screen: '#9fe3b4', face: '#0c1a12' },
+  // Secret: unlocked by the Konami code
+  rainbow:  {
+    name: 'Rainbow',
+    body: 'linear-gradient(160deg, #ff8fa3, #ffc46b, #fff37a, #8ef0a1, #7fc8ff, #b99bff)',
+    bodyShade: 'rgba(0, 0, 0, 0.12)',
+    outline: '#4a3a78',
+    screen: '#f2ffe9',
+    face: '#241a3d'
+  },
 } satisfies Record<string, BMOTheme>;
+
+// Themes that only appear once unlocked
+export const SECRET_THEMES: ThemeName[] = ['rainbow'];
 
 export type ThemeName = keyof typeof COLOR_THEMES;
 

@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback } from 'react';
 import { Message, Mood } from '../types';
-import { streamChat } from '../utils/api';
+import { ChatContext, fetchSong, recogniseFriend, streamChat } from '../utils/api';
 import { createSentenceSplitter, captionText } from '../utils/sentenceSplitter';
 import { emoteToMood } from '../utils/emotes';
 import { soundEffects } from '../utils/sounds';
-import { bmoSongs, SPECIAL_SONG_LYRICS, SPECIAL_SONG_TRIGGERS } from '../utils/songs';
+import { bmoSongs, SongMelody } from '../utils/songs';
+import { PhraseEgg, asksForName, detectPhrase, extractIntroName } from '../utils/easterEggs';
 import { STORY_PROMPTS } from '../utils/constants';
 import { HistoryMessage, MemoryPayload } from '../utils/memory';
 import { PLAYBACK_BLOCKED } from './useFishAudio';
@@ -22,7 +23,15 @@ interface Options {
   memory: MemoryPayload;
   initialHistory: HistoryMessage[];
   onMessages: (messages: HistoryMessage[]) => void;  // Persist new messages
+  isSpecial: boolean;                                // Talking with the friend BMO was made for
+  getContext: () => ChatContext;                     // Mode + hour from the app
+  // A phrase easter egg was said. Return true if the app handled it fully (don't chat).
+  onEasterEgg: (egg: PhraseEgg) => boolean;
+  onRecognised: (name: string, pronouns: string) => void;
 }
+
+// The special friend's own songs (the original one has its own trigger phrases)
+const FRIEND_SONGS = ['bright', 'morning'];
 
 // Only the last few messages are sent to the API, for speed
 const HISTORY_LIMIT = 6;
@@ -51,7 +60,8 @@ const recentForApi = (history: Message[]): Message[] => {
 };
 
 export const useBMOConversation = ({
-  speak, startQueue, enqueue, endQueue, stopSpeaking, voiceEnabled, memory, initialHistory, onMessages
+  speak, startQueue, enqueue, endQueue, stopSpeaking, voiceEnabled, memory, initialHistory, onMessages,
+  isSpecial, getContext, onEasterEgg, onRecognised
 }: Options) => {
   const [mood, setMood] = useState<Mood>('happy');
   const [caption, setCaption] = useState('');
@@ -67,6 +77,22 @@ export const useBMOConversation = ({
   memoryRef.current = memory;
   const onMessagesRef = useRef(onMessages);
   onMessagesRef.current = onMessages;
+  const isSpecialRef = useRef(isSpecial);
+  isSpecialRef.current = isSpecial;
+  const getContextRef = useRef(getContext);
+  getContextRef.current = getContext;
+  const onEasterEggRef = useRef(onEasterEgg);
+  onEasterEggRef.current = onEasterEgg;
+  const onRecognisedRef = useRef(onRecognised);
+  onRecognisedRef.current = onRecognised;
+  // Did BMO's last reply ask for the friend's name? (Then a one-word answer is their name.)
+  const askedNameRef = useRef(false);
+
+  const chatContext = (extra: ChatContext = {}): ChatContext => ({
+    ...getContextRef.current(),
+    special: isSpecialRef.current || undefined,
+    ...extra
+  });
   // Each reply gets an id; a newer reply or an interruption cancels the old one
   const replyIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
@@ -88,7 +114,11 @@ export const useBMOConversation = ({
   // Stream BMO's reply: the caption types out live, emotes act out as they arrive,
   // and each finished sentence is voiced straight away. Resolves with the full reply
   // once it has been written; call finishSpeaking() to wait for the voice to finish.
-  const streamReply = useCallback(async (request: { history?: Message[]; greeting?: { hoursAway: number; hour: number; visits: number } }) => {
+  const streamReply = useCallback(async (request: {
+    history?: Message[];
+    greeting?: { hoursAway: number; hour: number; visits: number };
+    context?: ChatContext;
+  }) => {
     // Cancel any reply still in progress; this one takes over the caption and the voice
     abortRef.current?.abort();
     const id = ++replyIdRef.current;
@@ -132,6 +162,7 @@ export const useBMOConversation = ({
       // A reply cut short is trimmed to its last full sentence; don't voice the unfinished tail
       if (reply.trim() === received.trim()) splitter.end();
       setCaption(captionText(reply));
+      askedNameRef.current = asksForName(reply);
       return reply;
     } catch (error) {
       if (!isCurrent()) throw new ReplySuperseded();  // The newer reply owns the voice now
@@ -181,7 +212,7 @@ export const useBMOConversation = ({
   }, [speak]);
 
   // Send one friend message (or story request) and deliver BMO's reply
-  const converse = useCallback(async (userEntry: HistoryMessage, apiContent: string) => {
+  const converse = useCallback(async (userEntry: HistoryMessage, apiContent: string, extra: ChatContext = {}) => {
     setIsThinking(true);
     setMood('thinking');
     setCaption(userEntry.kind === 'story' ? STORY_LABEL : `“${userEntry.text}”`);
@@ -191,7 +222,7 @@ export const useBMOConversation = ({
 
     let reply: string;
     try {
-      reply = await streamReply({ history: recentForApi(newHistory) });
+      reply = await streamReply({ history: recentForApi(newHistory), context: chatContext(extra) });
     } catch (error) {
       // Interrupted: the friend moved on, so this turn isn't kept in the conversation
       if (error instanceof ReplySuperseded) return;
@@ -206,22 +237,63 @@ export const useBMOConversation = ({
     await finishSpeaking();
   }, [streamReply, finishSpeaking, showError]);
 
+  // Sing one of the special songs (lyrics come from the server, never from this code)
+  const singSong = useCallback(async (id: string) => {
+    interrupt();
+    const song = await fetchSong(id, isSpecialRef.current).catch(() => null);
+    if (!song) {
+      setCaption('BMO forgot the words! *sniffles*');
+      setMood('sad');
+      return;
+    }
+    soundEffects.playEmote('excited');
+    setCaption(`♪ ${song.lyrics} ♪`);  // Show the words while BMO sings them
+    await wait(600);
+    await sing(song.lyrics, () => bmoSongs.playMelody(song.melody as SongMelody));
+  }, [interrupt, sing]);
+
+  // Sing one of the special friend's songs at random
+  const singForFriend = useCallback(
+    () => singSong(FRIEND_SONGS[Math.floor(Math.random() * FRIEND_SONGS.length)]),
+    [singSong]
+  );
+
   const send = useCallback(async (userMessage: string) => {
     const text = userMessage.trim();
     if (!text) return;
 
-    // Hidden easter egg song
-    const lower = text.toLowerCase();
-    if (SPECIAL_SONG_TRIGGERS.some(trigger => lower.includes(trigger))) {
-      soundEffects.playEmote('excited');
-      setCaption('♪ ♫ ♪');
-      await wait(1000);
-      await sing(SPECIAL_SONG_LYRICS, () => bmoSongs.playSpecialSongMelody());
+    // Easter eggs first: some replace the chat, others (like modes) change it
+    const egg = detectPhrase(text);
+    if (egg === 'originalSong') {
+      await singSong('original');
+      return;
+    }
+    if (egg === 'sing' && isSpecialRef.current) {
+      await singForFriend();
+      return;
+    }
+    if (egg && onEasterEggRef.current(egg)) {
+      // Handled by the app (e.g. click it, BMO chop): keep it in the visible chat only
+      setDisplayMessages(prev => [...prev, { role: 'user', text }]);
       return;
     }
 
-    await converse({ role: 'user', text }, text);
-  }, [converse, sing]);
+    // Is this the special friend introducing themselves?
+    let extra: ChatContext = {};
+    if (!isSpecialRef.current) {
+      const name = extractIntroName(text, askedNameRef.current);
+      if (name) {
+        const result = await recogniseFriend(name).catch(() => ({ special: false as const }));
+        if (result.special && result.name) {
+          onRecognisedRef.current(result.name, result.pronouns || '');
+          isSpecialRef.current = true;
+          extra = { special: true, justRecognised: true };
+        }
+      }
+    }
+
+    await converse({ role: 'user', text }, text, extra);
+  }, [converse, singSong, singForFriend]);
 
   const tellStory = useCallback(async () => {
     const prompt = STORY_PROMPTS[Math.floor(Math.random() * STORY_PROMPTS.length)];
@@ -233,7 +305,7 @@ export const useBMOConversation = ({
     setMood('thinking');
     let reply: string;
     try {
-      reply = await streamReply({ greeting: info });
+      reply = await streamReply({ greeting: info, context: chatContext() });
     } catch (error) {
       if (error instanceof ReplySuperseded) return true;  // Friend already moved on
       console.warn('Greeting failed, using the default hello:', error);
@@ -276,6 +348,7 @@ export const useBMOConversation = ({
     tellStory,
     greet,
     sing,
+    singForFriend,
     quickLine,
     interrupt,
     reset

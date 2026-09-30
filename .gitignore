@@ -211,5 +211,10 @@ scratch.md
 # Claude Code local settings
 .claude/
 
+CLAUDE.md
+
 # Superpowers design specs
 docs/superpowers/
+
+# Private: the special friend (name, messages, songs)
+special.local.js

@@ -70,6 +70,12 @@ User Input → Frontend Cache (Memory/IndexedDB) → Backend Cache → Anthropic
 - `GET /health` - Health check with cache statistics
 - `POST /api/preload` - Preload common TTS phrases
 
+### Special friend & easter eggs
+
+BMO was made for someone special. Her details live in `special.local.js` (git-ignored; `special.example.js` shows the shape) or, in production, the `BMO_SPECIAL_JSON` env var on Railway. Nothing personal is in the frontend bundle: when someone introduces themselves, the client asks `POST /api/special/recognise`; on a match, memory gets `special: true` and chats send `special: true` so the server adds the special-friend prompt (comfort messages, songs via `POST /api/special/song`). Chats also accept `mode` (`detective` | `football`) and `hour` (bedtime BMO).
+
+Easter eggs (`src/utils/easterEggs.ts`, wired in `App.tsx`): "click it click it" / "clock it", BMO Chop, Detective BMO Noire, Football in the mirror (phrase or long-press the screen), hidden button (long-press the D-pad centre → `HiddenGame`), Konami code (↑↑↓↓←→←→ green red → Rainbow theme), stranger alarm, battery low (10 pokes), bedtime + bath-time joke. Spec: `docs/superpowers/specs/2026-09-30-erica-and-easter-eggs-design.md`.
+
 ### Streaming voice
 
 Replies stream in (`streamChat` in `src/utils/api.ts`), the caption types out live, `src/utils/sentenceSplitter.ts` pulls out *emotes* and complete sentences, and `useFishAudio`'s speech queue (`startQueue`/`enqueue`/`endQueue`) voices up to 2 sentences ahead and plays them back to back on one audio element (iOS-safe). Each reply has an id; a new message or `interrupt()` cancels the old reply's download, caption and voice. A watchdog moves on if a clip never reports ending. Measured: ~2 s from send to first spoken word on a long story (was 9–14 s). Spec: `docs/superpowers/specs/2026-09-30-streaming-voice-design.md`.

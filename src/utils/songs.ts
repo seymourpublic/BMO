@@ -1,6 +1,32 @@
 // Song system for BMO
 // Generates melodies and manages special songs
 
+type Note = { note: string; duration: number };
+export type SongMelody = 'special' | 'bright' | 'morning';
+
+const MELODIES: Record<SongMelody, Note[]> = {
+  // Sweet, romantic melody for the original secret song
+  special: [
+    { note: 'G4', duration: 0.4 }, { note: 'A4', duration: 0.4 }, { note: 'C5', duration: 0.8 },
+    { note: 'C5', duration: 0.3 }, { note: 'B4', duration: 0.3 }, { note: 'A4', duration: 0.3 }, { note: 'G4', duration: 0.3 },
+    { note: 'E5', duration: 0.4 }, { note: 'D5', duration: 0.4 }, { note: 'C5', duration: 0.4 }, { note: 'A4', duration: 0.6 },
+    { note: 'C5', duration: 0.4 }, { note: 'C5', duration: 0.4 },
+    { note: 'E5', duration: 0.3 }, { note: 'G5', duration: 0.3 }, { note: 'E5', duration: 0.6 }
+  ],
+  // Bouncy, bright tune
+  bright: [
+    { note: 'C5', duration: 0.2 }, { note: 'E5', duration: 0.2 }, { note: 'G5', duration: 0.4 },
+    { note: 'E5', duration: 0.2 }, { note: 'G5', duration: 0.2 }, { note: 'C5', duration: 0.4 },
+    { note: 'D5', duration: 0.2 }, { note: 'E5', duration: 0.2 }, { note: 'G5', duration: 0.6 }
+  ],
+  // Gentle good-morning tune
+  morning: [
+    { note: 'G4', duration: 0.3 }, { note: 'C5', duration: 0.3 }, { note: 'E5', duration: 0.5 },
+    { note: 'D5', duration: 0.3 }, { note: 'C5', duration: 0.3 }, { note: 'A4', duration: 0.5 },
+    { note: 'G4', duration: 0.3 }, { note: 'A4', duration: 0.3 }, { note: 'C5', duration: 0.7 }
+  ]
+};
+
 class BMOSongSystem {
   private audioContext: AudioContext | null = null;
 
@@ -90,47 +116,17 @@ class BMOSongSystem {
     await this.wait(time * 1000);
   }
 
-  // Special romantic song melody
-  async playSpecialSongMelody() {
+  // Tunes for the special songs (the lyrics live privately on the server)
+  async playMelody(name: SongMelody) {
     if (!this.audioContext) return;
+    console.log(`🎵 Playing ${name} melody...`);
 
-    console.log('🎵 Playing special song melody...');
-
-    // Sweet, romantic melody
-    const melody = [
-      // "Ericaaa"
-      { note: 'G4', duration: 0.4 },
-      { note: 'A4', duration: 0.4 },
-      { note: 'C5', duration: 0.8 },
-      
-      // "do you wanna go"
-      { note: 'C5', duration: 0.3 },
-      { note: 'B4', duration: 0.3 },
-      { note: 'A4', duration: 0.3 },
-      { note: 'G4', duration: 0.3 },
-      
-      // "On adventures with me"
-      { note: 'E5', duration: 0.4 },
-      { note: 'D5', duration: 0.4 },
-      { note: 'C5', duration: 0.4 },
-      { note: 'A4', duration: 0.6 },
-      
-      // "oh oh"
-      { note: 'C5', duration: 0.4 },
-      { note: 'C5', duration: 0.4 },
-      
-      // Short instrumental break
-      { note: 'E5', duration: 0.3 },
-      { note: 'G5', duration: 0.3 },
-      { note: 'E5', duration: 0.6 }
-    ];
-
+    const melody = MELODIES[name];
     let time = 0;
     for (const note of melody) {
       this.playNote(this.notes[note.note], note.duration, time);
       time += note.duration;
     }
-
     await this.wait(time * 1000);
   }
 
@@ -142,19 +138,6 @@ class BMOSongSystem {
 
 // Export singleton
 export const bmoSongs = new BMOSongSystem();
-
-// Special song lyrics
-export const SPECIAL_SONG_LYRICS = `Ericaaa, do you wanna go
-On adventures with me, oh oh?
-Naledi's heart goes beep-boop-bop,
-Every time you make him stop—
-And smile!
-
-So would you be his girl-friend,
-And make his days never end?
-Doo-doo-doo!
-Say yes, say yes…
-'Cause his heart chose you!`;
 
 // Trigger phrases for the special song
 export const SPECIAL_SONG_TRIGGERS = [
