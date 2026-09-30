@@ -1,82 +1,122 @@
-import { Message, BMOResponse } from '../types';
-import { BMO_PERSONALITY } from './constants';
+import { Message } from '../types';
 import { persistentCache } from './persistentCache';
-import { getUserSummary } from './userAuth';
+import { MemoryPayload } from './memory';
 
-export const sendMessageToClaude = async (
-  conversationHistory: Message[],
-  userId?: string
-): Promise<string> => {
+const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+const CONFUSED = "Oh no! BMO's circuits got confused! BMO needs a moment...";
+
+// If a reply was cut off, end it at the last full sentence
+export const trimToSentence = (text: string): string => {
+  const trimmed = text.trimEnd();
+  const lastEnd = Math.max(trimmed.lastIndexOf('.'), trimmed.lastIndexOf('!'), trimmed.lastIndexOf('?'));
+  return lastEnd > trimmed.length * 0.4 ? trimmed.slice(0, lastEnd + 1) : trimmed;
+};
+
+const postJson = async (path: string, body: unknown, init: RequestInit = {}): Promise<Response> => {
   try {
-    const startTime = performance.now();
-    
-    // Check persistent cache first (memory + IndexedDB)
-    const cachedResponse = await persistentCache.get(conversationHistory);
-    if (cachedResponse) {
-      const cacheTime = performance.now() - startTime;
-      console.log(`⚡ Cache hit! Response time: ${cacheTime.toFixed(0)}ms`);
-      return cachedResponse;
-    }
-
-    // Build system prompt with user context
-    let systemPrompt = BMO_PERSONALITY;
-    if (userId) {
-      const userContext = getUserSummary(userId);
-      if (userContext) {
-        systemPrompt = `${BMO_PERSONALITY}\n\n${userContext}`;
-      }
-    }
-
-    // Call our backend proxy instead of Anthropic directly
-    // This avoids CORS issues
-    // Backend URL from environment variable (Vercel) or localhost (dev)
-    const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-    const API_URL = `${API_BASE_URL}/api/chat`;
-    
-    const response = await fetch(API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        messages: conversationHistory,
-        system: systemPrompt
-      })
+    return await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      ...init
     });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;  // Cancelled on purpose
+    console.error('Error communicating with BMO backend:', error);
+    throw new Error("BMO can't reach its brain! Is the backend server running?");
+  }
+};
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      
-      // Provide helpful error messages
-      if (response.status === 401) {
-        throw new Error('❌ API Key is invalid! Check your backend .env file.');
-      } else if (response.status === 429) {
-        throw new Error('⚠️ Rate limit exceeded or out of credits! Check your Anthropic account.');
-      } else if (response.status === 500) {
-        throw new Error('❌ Backend server error. Make sure the server is running!');
-      } else {
-        throw new Error(`API error: ${response.status} - ${JSON.stringify(errorData)}`);
+const throwForStatus = async (response: Response) => {
+  if (response.ok) return;
+  const errorData = await response.json().catch(() => ({}));
+  console.error('BMO backend error:', response.status, errorData);
+  if (response.status === 429) {
+    throw new Error(errorData.error || 'BMO needs a little rest! Try again in a moment.');
+  }
+  throw new Error(CONFUSED);
+};
+
+interface StreamOptions {
+  history?: Message[];
+  greeting?: { hoursAway: number; hour: number; visits: number };
+  memory: MemoryPayload | null;
+  onText: (delta: string) => void;  // Called with each new piece of the reply
+  signal?: AbortSignal;             // Cancels the request (e.g. the friend interrupted)
+}
+
+// Stream BMO's reply as it's written. Resolves with the full reply text.
+// If the connection drops after some text arrived, resolves with what arrived.
+export const streamChat = async ({ history, greeting, memory, onText, signal }: StreamOptions): Promise<string> => {
+  // Normal chats can come from the device cache (greetings are always fresh)
+  const cacheInput = history ? { history, memory } : null;
+  if (cacheInput) {
+    const cached = await persistentCache.get(cacheInput);
+    if (cached) {
+      console.log('⚡ Cache hit (streamed in one piece)');
+      onText(cached);
+      return cached;
+    }
+  }
+
+  const response = await postJson('/api/chat/stream', greeting ? { greeting, memory } : { messages: history, memory }, { signal });
+  await throwForStatus(response);
+  if (!response.body) throw new Error(CONFUSED);
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let text = '';
+  let stopReason: string | undefined;
+
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // Server-Sent Events are separated by a blank line
+      let boundary: number;
+      while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        const line = buffer.slice(0, boundary).trim();
+        buffer = buffer.slice(boundary + 2);
+        if (!line.startsWith('data:')) continue;
+        const event = JSON.parse(line.slice(5));
+        if (event.type === 'text') {
+          text += event.text;
+          onText(event.text);
+        } else if (event.type === 'done') {
+          stopReason = event.stop_reason;
+        } else if (event.type === 'error') {
+          throw new Error(event.error || CONFUSED);
+        }
       }
     }
-
-    const data: BMOResponse = await response.json();
-    const assistantResponse = data.content[0].text;
-
-    const totalTime = performance.now() - startTime;
-    console.log(`📊 Total response time: ${totalTime.toFixed(0)}ms`);
-
-    // Cache the response for faster future access (30 min TTL)
-    await persistentCache.set(conversationHistory, assistantResponse, 1800000);
-
-    return assistantResponse;
   } catch (error) {
-    console.error('Error communicating with BMO backend:', error);
-    
-    // Check if it's a network error (backend not running)
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      throw new Error('❌ Cannot connect to backend server! Make sure it\'s running on http://localhost:3001');
-    }
-    
-    throw error;
+    // Keep a partial reply rather than throwing it away
+    if (!text) throw error instanceof Error ? error : new Error(CONFUSED);
+    console.warn('Reply stream broke early; keeping what arrived:', error);
+    return trimToSentence(text);
   }
+
+  if (!text) throw new Error(CONFUSED);
+  const reply = stopReason === 'max_tokens' ? trimToSentence(text) : text;
+  if (cacheInput && stopReason === 'end_turn') {
+    await persistentCache.set(cacheInput, reply, 1800000);
+  }
+  return reply;
+};
+
+// Ask the backend to update BMO's memory from recent messages.
+// `keepalive` lets it finish even if the page is closing.
+export const rememberConversation = async (
+  memory: MemoryPayload,
+  messages: Message[],
+  keepalive = false
+): Promise<MemoryPayload> => {
+  const response = await postJson('/api/remember', { memory, messages }, { keepalive });
+  await throwForStatus(response);
+  const data = await response.json();
+  return data.memory as MemoryPayload;
 };

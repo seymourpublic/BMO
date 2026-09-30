@@ -1,210 +1,219 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { Mood } from '../types';
+
+export type LookDirection = 'left' | 'right' | 'up' | 'down';
+
+// How far the face shifts when BMO looks around (SVG units)
+const LOOK_OFFSETS: Record<LookDirection, [number, number]> = {
+  left: [-7, 0], right: [7, 0], up: [0, -5], down: [0, 5]
+};
 
 interface BMOFaceProps {
   mood: Mood;
-  isSpeaking?: boolean;
-  isListening?: boolean;
+  look?: LookDirection | null;
+  eyesClosed?: boolean;  // Slow blink while idle
+  faceColor: string;
+  asleep?: boolean;
+  listening?: boolean;
+  speaking?: boolean;
+  singing?: boolean;
+  // Voice loudness 0-1 while speaking, or -1 if it can't be measured
+  getMouthLevel?: () => number;
 }
 
-export const BMOFace: React.FC<BMOFaceProps> = memo(({ mood, isSpeaking = false, isListening = false }) => {
-  // Eye configurations for different moods
-  const eyeConfigs = {
-    happy: { leftY: 35, rightY: 35, size: 16 },
-    excited: { leftY: 30, rightY: 30, size: 20 },
-    thinking: { leftY: 38, rightY: 35, size: 14 },
-    sad: { leftY: 40, rightY: 40, size: 14 },
-    surprised: { leftY: 28, rightY: 28, size: 22 },
-    confused: { leftY: 38, rightY: 32, size: 15 }
-  };
+type MouthFrame = 0 | 1 | 2;  // closed, half open, open
 
-  // Mouth configurations for different moods
-  const mouthConfigs = {
-    happy: { type: 'smile', width: 80, height: 25, y: 70 },
-    excited: { type: 'bigSmile', width: 90, height: 35, y: 68 },
-    thinking: { type: 'line', width: 60, height: 3, y: 75 },
-    sad: { type: 'frown', width: 70, height: 25, y: 75 },
-    surprised: { type: 'oval', width: 35, height: 45, y: 70 },
-    confused: { type: 'line', width: 50, height: 3, y: 78 }
-  };
+// Loudness thresholds for the half-open and open mouth
+const HALF_OPEN_LEVEL = 0.12;
+const OPEN_LEVEL = 0.35;
+// Hold each mouth shape at least this long so it flaps like a cartoon instead of flickering
+const MIN_FRAME_MS = 70;
+// How much each new loudness reading counts vs the running average (0-1)
+const LEVEL_SMOOTHING = 0.45;
 
-  // Override mood when speaking or listening
-  const activeMood = isSpeaking ? 'excited' : isListening ? 'surprised' : mood;
-  const eyeConfig = eyeConfigs[activeMood];
-  const mouthConfig = mouthConfigs[activeMood];
+const levelToFrame = (level: number): MouthFrame =>
+  level >= OPEN_LEVEL ? 2 : level >= HALF_OPEN_LEVEL ? 1 : 0;
 
-  const renderMouth = () => {
-    const { type, width, height, y } = mouthConfig;
+// Drive mouth flaps from the voice's loudness, or a random timer if it can't be measured
+const useMouthFrame = (active: boolean, getMouthLevel?: () => number): MouthFrame => {
+  const [frame, setFrame] = useState<MouthFrame>(0);
 
-    // Add animation when speaking
-    const animationClass = isSpeaking ? 'animate-pulse' : '';
-
-    switch (type) {
-      case 'smile':
-        return (
-          <path
-            d={`M ${(120 - width) / 2} ${y} Q ${120 / 2} ${y + height} ${(120 + width) / 2} ${y}`}
-            stroke="#0a3d3f"
-            strokeWidth="5"
-            fill="none"
-            strokeLinecap="round"
-            className={`transition-all duration-500 ${animationClass}`}
-          />
-        );
-      case 'bigSmile':
-        return (
-          <path
-            d={`M ${(120 - width) / 2} ${y} Q ${120 / 2} ${y + height} ${(120 + width) / 2} ${y}`}
-            stroke="#0a3d3f"
-            strokeWidth="6"
-            fill="none"
-            strokeLinecap="round"
-            className={`transition-all duration-500 ${animationClass}`}
-          />
-        );
-      case 'frown':
-        return (
-          <path
-            d={`M ${(120 - width) / 2} ${y} Q ${120 / 2} ${y - height} ${(120 + width) / 2} ${y}`}
-            stroke="#0a3d3f"
-            strokeWidth="5"
-            fill="none"
-            strokeLinecap="round"
-            className={`transition-all duration-500 ${animationClass}`}
-          />
-        );
-      case 'line':
-        return (
-          <rect
-            x={(120 - width) / 2}
-            y={y}
-            width={width}
-            height={height}
-            rx="2"
-            fill="#0a3d3f"
-            className={`transition-all duration-500 ${animationClass}`}
-          />
-        );
-      case 'oval':
-        return (
-          <ellipse
-            cx={120 / 2}
-            cy={y + height / 2}
-            rx={width / 2}
-            ry={height / 2}
-            fill="none"
-            stroke="#0a3d3f"
-            strokeWidth="5"
-            className={`transition-all duration-500 ${animationClass}`}
-          />
-        );
-      default:
-        return null;
+  useEffect(() => {
+    if (!active) {
+      setFrame(0);
+      return;
     }
-  };
+    let rafId = 0;
+    let timerId = 0;
+    let current: MouthFrame = 0;
+    let lastChange = 0;
+    let smoothedLevel = 0;
+    const show = (next: MouthFrame) => {
+      if (next !== current) {
+        current = next;
+        lastChange = performance.now();
+        setFrame(next);  // Only re-render when the mouth shape changes
+      }
+    };
+
+    const flapOnTimer = () => {
+      const options = ([0, 1, 2] as MouthFrame[]).filter(f => f !== current);
+      show(options[Math.floor(Math.random() * options.length)]);
+      timerId = window.setTimeout(flapOnTimer, 110 + Math.random() * 70);
+    };
+
+    const followVoice = () => {
+      const level = getMouthLevel ? getMouthLevel() : -1;
+      if (level < 0) {
+        flapOnTimer();  // Switch to the fallback for the rest of this clip
+        return;
+      }
+      smoothedLevel += (level - smoothedLevel) * LEVEL_SMOOTHING;
+      if (performance.now() - lastChange >= MIN_FRAME_MS) {
+        show(levelToFrame(smoothedLevel));
+      }
+      rafId = requestAnimationFrame(followVoice);
+    };
+
+    followVoice();
+    return () => {
+      cancelAnimationFrame(rafId);
+      clearTimeout(timerId);
+    };
+  }, [active, getMouthLevel]);
+
+  return frame;
+};
+
+const Eyes: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean; c: string }> = ({ mood, asleep, listening, c }) => {
+  if (asleep) {
+    return (
+      <>
+        <path d="M26 24 Q32 30 38 24" stroke={c} strokeWidth="3.5" fill="none" strokeLinecap="round" />
+        <path d="M82 24 Q88 30 94 24" stroke={c} strokeWidth="3.5" fill="none" strokeLinecap="round" />
+      </>
+    );
+  }
+  if (listening) {
+    return (
+      <g className="bmo-blink">
+        <ellipse cx="32" cy="20" rx="6" ry="9" fill={c} />
+        <ellipse cx="88" cy="20" rx="6" ry="9" fill={c} />
+      </g>
+    );
+  }
+  switch (mood) {
+    case 'excited':
+      return (
+        <>
+          <path d="M24 26 Q32 14 40 26" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />
+          <path d="M80 26 Q88 14 96 26" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />
+        </>
+      );
+    case 'surprised':
+      return (
+        <g className="bmo-blink">
+          <ellipse cx="32" cy="20" rx="6" ry="9" fill={c} />
+          <ellipse cx="88" cy="20" rx="6" ry="9" fill={c} />
+        </g>
+      );
+    case 'sad':
+      return (
+        <g className="bmo-blink">
+          <ellipse cx="32" cy="24" rx="5" ry="7" fill={c} />
+          <ellipse cx="88" cy="24" rx="5" ry="7" fill={c} />
+          {/* Brows slope up toward the middle (sloping down would look angry) */}
+          <path d="M24 16 L38 11" stroke={c} strokeWidth="3" strokeLinecap="round" />
+          <path d="M96 16 L82 11" stroke={c} strokeWidth="3" strokeLinecap="round" />
+        </g>
+      );
+    case 'thinking':
+      return (
+        <>
+          <ellipse className="bmo-blink" cx="32" cy="22" rx="5" ry="7" fill={c} />
+          <path d="M80 22 L96 22" stroke={c} strokeWidth="4" strokeLinecap="round" />
+        </>
+      );
+    case 'confused':
+      return (
+        <g className="bmo-blink">
+          <ellipse cx="32" cy="22" rx="5" ry="7" fill={c} />
+          <ellipse cx="88" cy="20" rx="7" ry="9" fill={c} />
+        </g>
+      );
+    default:
+      return (
+        <g className="bmo-blink">
+          <ellipse cx="32" cy="22" rx="5" ry="7" fill={c} />
+          <ellipse cx="88" cy="22" rx="5" ry="7" fill={c} />
+        </g>
+      );
+  }
+};
+
+// Style A: smile that opens into a "D" (talking)
+const TalkMouth: React.FC<{ frame: MouthFrame; c: string }> = ({ frame, c }) => {
+  if (frame === 0) return <path d="M44 46 Q60 54 76 46" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+  if (frame === 1) return <path d="M44 42 Q60 58 76 42 Q60 48 44 42 Z" fill={c} stroke={c} strokeWidth="2" strokeLinejoin="round" />;
+  return <path d="M42 38 Q60 68 78 38 Q60 44 42 38 Z" fill={c} stroke={c} strokeWidth="2" strokeLinejoin="round" />;
+};
+
+// Style B: round "O" with a little tongue (singing)
+const SingMouth: React.FC<{ frame: MouthFrame; c: string }> = ({ frame, c }) => {
+  if (frame === 0) return <path d="M48 48 L72 48" stroke={c} strokeWidth="4" strokeLinecap="round" />;
+  if (frame === 1) return <ellipse cx="60" cy="48" rx="10" ry="5" fill={c} />;
+  return (
+    <>
+      <ellipse cx="60" cy="48" rx="12" ry="11" fill={c} />
+      <ellipse cx="60" cy="54" rx="7" ry="3.5" fill="#e0707a" />
+    </>
+  );
+};
+
+const RestingMouth: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean; c: string }> = ({ mood, asleep, listening, c }) => {
+  if (asleep) return <path d="M54 48 L66 48" stroke={c} strokeWidth="3.5" strokeLinecap="round" />;
+  if (listening) return <path d="M50 46 Q60 52 70 46" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+  switch (mood) {
+    case 'excited':
+      return <path d="M40 38 Q60 70 80 38 Z" fill={c} stroke={c} strokeWidth="2" strokeLinejoin="round" />;
+    case 'surprised':
+      return <ellipse cx="60" cy="48" rx="8" ry="10" fill={c} />;
+    case 'sad':
+      return <path d="M44 54 Q60 40 76 54" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+    case 'thinking':
+      return <path d="M46 48 L74 44" stroke={c} strokeWidth="4" strokeLinecap="round" />;
+    case 'confused':
+      return <path d="M44 48 Q52 42 60 48 T76 48" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+    default:
+      return <path d="M42 42 Q60 60 78 42" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+  }
+};
+
+export const BMOFace: React.FC<BMOFaceProps> = memo(({
+  mood, look, eyesClosed, faceColor, asleep, listening, speaking, singing, getMouthLevel
+}) => {
+  const flapping = !!(speaking && !asleep);
+  const frame = useMouthFrame(flapping, getMouthLevel);
+  const [dx, dy] = look && !asleep ? LOOK_OFFSETS[look] : [0, 0];
 
   return (
-    <div className="relative mx-auto w-[180px] h-[140px]">
-      <svg
-        viewBox="0 0 120 100"
-        className="w-full h-full"
-        style={{ filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.1))' }}
-      >
-        {/* Left Eye */}
-        <g className="transition-all duration-500">
-          <circle
-            cx="35"
-            cy={eyeConfig.leftY}
-            r={eyeConfig.size / 2}
-            fill="#0a3d3f"
-            className="animate-blink"
-          />
-          {/* Eye shine/reflection */}
-          <circle
-            cx="37"
-            cy={eyeConfig.leftY - 2}
-            r={eyeConfig.size / 5}
-            fill="rgba(142, 228, 212, 0.6)"
-          />
+    <svg viewBox="0 0 120 70" className="w-full h-full overflow-visible" role="img" aria-label={asleep ? 'BMO is asleep' : `BMO looks ${mood}`}>
+      <g style={{ transform: `translate(${dx}px, ${dy}px)`, transition: 'transform 180ms ease-out' }}>
+      <Eyes mood={mood} asleep={asleep || eyesClosed} listening={listening} c={faceColor} />
+      {flapping
+        ? (singing ? <SingMouth frame={frame} c={faceColor} /> : <TalkMouth frame={frame} c={faceColor} />)
+        : <RestingMouth mood={mood} asleep={asleep} listening={listening} c={faceColor} />}
+      {asleep && (
+        <text x="100" y="14" fontSize="9" fontWeight="bold" fill={faceColor} className="bmo-zzz">z</text>
+      )}
+      {mood === 'thinking' && !speaking && !asleep && (
+        <g className="bmo-think-dots" fill={faceColor}>
+          <circle cx="102" cy="10" r="2" />
+          <circle cx="108" cy="6" r="1.5" />
+          <circle cx="113" cy="3" r="1" />
         </g>
-
-        {/* Right Eye */}
-        <g className="transition-all duration-500">
-          <circle
-            cx="85"
-            cy={eyeConfig.rightY}
-            r={eyeConfig.size / 2}
-            fill="#0a3d3f"
-            className="animate-blink"
-          />
-          {/* Eye shine/reflection */}
-          <circle
-            cx="87"
-            cy={eyeConfig.rightY - 2}
-            r={eyeConfig.size / 5}
-            fill="rgba(142, 228, 212, 0.6)"
-          />
-        </g>
-
-        {/* Mouth */}
-        <g className="transition-all duration-500">
-          {renderMouth()}
-        </g>
-
-        {/* Cheeks when excited or speaking */}
-        {(activeMood === 'excited' || isSpeaking) && (
-          <>
-            <ellipse
-              cx="25"
-              cy="55"
-              rx="8"
-              ry="6"
-              fill="rgba(243, 156, 18, 0.3)"
-              className="animate-pulse"
-            />
-            <ellipse
-              cx="95"
-              cy="55"
-              rx="8"
-              ry="6"
-              fill="rgba(243, 156, 18, 0.3)"
-              className="animate-pulse"
-            />
-          </>
-        )}
-
-        {/* Listening indicator - sound waves */}
-        {isListening && (
-          <g className="animate-pulse">
-            <circle cx="10" cy="50" r="2" fill="#0a3d3f" opacity="0.5" />
-            <circle cx="110" cy="50" r="2" fill="#0a3d3f" opacity="0.5" />
-            <circle cx="8" cy="45" r="1.5" fill="#0a3d3f" opacity="0.3" />
-            <circle cx="112" cy="45" r="1.5" fill="#0a3d3f" opacity="0.3" />
-            <circle cx="6" cy="55" r="1.5" fill="#0a3d3f" opacity="0.3" />
-            <circle cx="114" cy="55" r="1.5" fill="#0a3d3f" opacity="0.3" />
-          </g>
-        )}
-
-        {/* Thinking indicator - thought bubble */}
-        {activeMood === 'thinking' && !isSpeaking && !isListening && (
-          <g className="animate-bounce-slow">
-            <circle cx="100" cy="20" r="3" fill="#0a3d3f" opacity="0.4" />
-            <circle cx="105" cy="15" r="2" fill="#0a3d3f" opacity="0.3" />
-            <circle cx="110" cy="12" r="1.5" fill="#0a3d3f" opacity="0.2" />
-          </g>
-        )}
-      </svg>
-
-      {/* Controller buttons below the face */}
-      <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 flex gap-2">
-        <div className={`w-3 h-3 rounded-full bg-[#2d6d6e] border-2 border-[#0a3d3f] shadow-inner ${isSpeaking ? 'animate-pulse' : ''}`} />
-        <div className={`w-3 h-3 rounded-full bg-[#2d6d6e] border-2 border-[#0a3d3f] shadow-inner ${isListening ? 'animate-pulse' : ''}`} />
-      </div>
-    </div>
+      )}
+      </g>
+    </svg>
   );
-}, (prevProps, nextProps) => {
-  // Only re-render if props actually changed
-  return prevProps.mood === nextProps.mood &&
-         prevProps.isSpeaking === nextProps.isSpeaking &&
-         prevProps.isListening === nextProps.isListening;
 });

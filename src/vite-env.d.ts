@@ -1,9 +1,9 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly VITE_ANTHROPIC_API_KEY: string
-  // Add more frontend env variables here as needed
-  // Note: FISH_AUDIO_API_KEY is on backend only, not here
+  // Backend URL (Railway). Defaults to http://localhost:3001 in development.
+  // API keys live on the backend only - never add them here.
+  readonly VITE_BACKEND_URL?: string
 }
 
 interface ImportMeta {

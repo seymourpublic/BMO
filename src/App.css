@@ -1,102 +1,102 @@
-@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Orbitron:wght@400;700;900&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-.grid-cols-16 {
-  grid-template-columns: repeat(16, minmax(0, 1fr));
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: #bfe9dd;
 }
 
-.custom-scrollbar::-webkit-scrollbar {
-  width: 6px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 3px;
-}
-
-.custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #4fb8b9;
-  border-radius: 3px;
-}
-
-.btn-retro {
-  @apply bg-gradient-to-b from-[#2d6d6e] to-[#1e4d4e] border-none rounded-lg p-3 text-[#8ee4d4] font-press-start text-[8px] cursor-pointer shadow-[0_4px_0_#0a2d2e,0_6px_12px_rgba(0,0,0,0.3)] transition-all uppercase relative overflow-hidden;
-}
-
-.btn-retro:hover {
-  @apply -translate-y-0.5 shadow-[0_6px_0_#0a2d2e,0_8px_16px_rgba(0,0,0,0.4)];
-}
-
-.btn-retro:active {
-  @apply translate-y-0.5 shadow-[0_2px_0_#0a2d2e,0_4px_8px_rgba(0,0,0,0.3)];
-}
-
-.btn-retro-primary {
-  @apply bg-gradient-to-b from-[#f39c12] to-[#e67e22] border-none rounded-lg p-4 text-white font-press-start text-[10px] cursor-pointer shadow-[0_4px_0_#c0730e,0_6px_12px_rgba(0,0,0,0.3)] transition-all uppercase disabled:opacity-50 disabled:cursor-not-allowed;
-}
-
-.btn-retro-primary:hover:not(:disabled) {
-  @apply -translate-y-0.5 shadow-[0_6px_0_#c0730e,0_8px_16px_rgba(0,0,0,0.4)];
-}
-
-.btn-retro-primary:active:not(:disabled) {
-  @apply translate-y-0.5 shadow-[0_2px_0_#c0730e,0_4px_8px_rgba(0,0,0,0.3)];
-}
-
-/* Music notes floating animation */
+/* Music notes floating up while BMO sings */
 @keyframes float-up {
-  0% {
-    transform: translateY(0) scale(0.5) rotate(0deg);
-    opacity: 0;
-  }
-  20% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(-250px) scale(1.2) rotate(15deg);
-    opacity: 0;
-  }
+  0%   { transform: translateY(0) scale(0.5) rotate(0deg); opacity: 0; }
+  20%  { opacity: 1; }
+  100% { transform: translateY(-250px) scale(1.2) rotate(15deg); opacity: 0; }
 }
-
 .animate-float-up {
   animation: float-up 3s ease-out infinite;
-  color: #f39c12;
-  text-shadow: 0 0 10px rgba(243, 156, 18, 0.8);
 }
 
-/* Start screen animations */
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
+/* Thin scrollbar for long captions on BMO's screen */
+.bmo-caption {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(21, 36, 31, 0.3) transparent;
+}
+
+/* Panels sliding up */
+@keyframes sheet-up {
+  from { transform: translateY(24px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.animate-sheet-up {
+  animation: sheet-up 0.2s ease-out;
+}
+
+/* BMO blinks every few seconds */
+@keyframes bmo-blink {
+  0%, 94%, 100% { transform: scaleY(1); }
+  97%           { transform: scaleY(0.1); }
+}
+.bmo-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bmo-blink 4.5s infinite;
+}
+
+/* Sleeping: dimmed screen and a floating "z" */
+.bmo-asleep {
+  background: rgba(10, 30, 25, 0.35);
+}
+@keyframes bmo-zzz {
+  0%   { transform: translate(0, 4px); opacity: 0; }
+  30%  { opacity: 1; }
+  100% { transform: translate(6px, -6px); opacity: 0; }
+}
+.bmo-zzz {
+  animation: bmo-zzz 2.2s ease-out infinite;
+}
+
+/* Thinking dots bob gently */
+@keyframes bmo-think {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-2px); }
+}
+.bmo-think-dots {
+  animation: bmo-think 1.2s ease-in-out infinite;
+}
+
+/* Red button glows while BMO is listening */
+@keyframes bmo-red-glow {
+  0%, 100% { filter: drop-shadow(0 0 0 rgba(228, 61, 61, 0.9)); }
+  50%      { filter: drop-shadow(0 0 10px rgba(255, 90, 90, 1)); }
+}
+.bmo-red-glow {
+  animation: bmo-red-glow 1s ease-in-out infinite;
+}
+
+/* D-pad wiggle and the happy dance */
+@keyframes bmo-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  30%      { transform: rotate(-2.5deg); }
+  70%      { transform: rotate(2.5deg); }
+}
+.bmo-wiggle {
+  animation: bmo-wiggle 0.35s ease-in-out;
+}
+@keyframes bmo-dance {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  20%      { transform: translateY(-14px) rotate(-6deg); }
+  40%      { transform: translateY(0) rotate(0deg); }
+  60%      { transform: translateY(-14px) rotate(6deg); }
+  80%      { transform: translateY(0) rotate(0deg); }
+}
+.bmo-dance {
+  animation: bmo-dance 0.75s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bmo-wiggle, .bmo-dance,
+  .bmo-blink, .bmo-zzz, .bmo-think-dots, .bmo-red-glow, .animate-float-up, .animate-sheet-up {
+    animation: none;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
-
-.animate-fade-in {
-  animation: fade-in 0.6s ease-out;
-}
-
-@keyframes bounce-slow {
-  0%, 100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-20px);
-  }
-}
-
-.animate-bounce-slow {
-  animation: bounce-slow 2s ease-in-out infinite;
-}
-
-.animation-delay-150 {
-  animation-delay: 150ms;
-}
-

@@ -105,6 +105,37 @@ class SoundEffects {
     oscillator.stop(now + 0.16);
   }
 
+  // Play a sequence of soft notes: [frequency Hz, duration s][]
+  private playNotes(notes: Array<[number, number]>, type: OscillatorType = 'sine', volume = 0.12) {
+    if (!this.enabled || !this.audioContext) return;
+    let t = this.audioContext.currentTime;
+    for (const [freq, duration] of notes) {
+      const oscillator = this.audioContext.createOscillator();
+      const gainNode = this.audioContext.createGain();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(freq, t);
+      gainNode.gain.setValueAtTime(0.0001, t);
+      gainNode.gain.exponentialRampToValueAtTime(volume, t + 0.02);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+      oscillator.connect(gainNode);
+      gainNode.connect(this.audioContext.destination);
+      oscillator.start(t);
+      oscillator.stop(t + duration + 0.02);
+      t += duration;
+    }
+  }
+
+  // Short beep for the D-pad; each direction has its own pitch
+  playDirection(direction: 'up' | 'down' | 'left' | 'right') {
+    const pitch = { up: 784, right: 659, down: 523, left: 587 }[direction];
+    this.playNotes([[pitch, 0.08]], 'square', 0.06);
+  }
+
+  // Little dance tune
+  playDance() {
+    this.playNotes([[523, 0.12], [659, 0.12], [784, 0.12], [659, 0.12], [784, 0.12], [1047, 0.3]], 'square', 0.06);
+  }
+
   // Play emote sound (different for each type)
   playEmote(emoteName: string) {
     if (!this.enabled || !this.audioContext) return;

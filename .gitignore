@@ -204,3 +204,12 @@ scratch.md
 # Example: uploads folder if you add file uploads
 # uploads/
 # media/
+
+# Brainstorming mockups (visual companion)
+.superpowers/
+
+# Claude Code local settings
+.claude/
+
+# Superpowers design specs
+docs/superpowers/

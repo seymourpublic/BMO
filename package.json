@@ -12,14 +12,12 @@
     "start": "concurrently \"npm run dev\" \"npm run server\""
   },
   "dependencies": {
-    "@types/three": "^0.181.0",
+    "@anthropic-ai/sdk": "^0.129.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "lucide-react": "^0.263.1",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "three": "^0.181.2"
+    "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",

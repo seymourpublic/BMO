@@ -5,10 +5,6 @@ export const isIOS = () => {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
 };
 
-export const isSafari = () => {
-  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-};
-
 // Unlock iOS audio - must be called during user interaction
 export const unlockIOSAudio = async () => {
   if (!isIOS()) return true;
@@ -38,27 +34,3 @@ export const unlockIOSAudio = async () => {
   }
 };
 
-// Check if audio can autoplay
-export const canAutoplay = async (): Promise<boolean> => {
-  try {
-    const audio = new Audio();
-    audio.volume = 0;
-    await audio.play();
-    audio.pause();
-    return true;
-  } catch (error) {
-    return false;
-  }
-};
-
-// Get audio playback tips for iOS
-export const getIOSTips = (): string[] => {
-  if (!isIOS()) return [];
-  
-  return [
-    'Make sure ringer switch is ON (not silent mode)',
-    'Turn up volume using side buttons',
-    'Check that Low Power Mode is OFF',
-    'Try closing and reopening Safari',
-  ];
-};

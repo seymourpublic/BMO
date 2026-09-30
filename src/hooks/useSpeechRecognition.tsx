@@ -5,6 +5,7 @@ interface UseSpeechRecognition {
   isListening: boolean;
   startListening: () => void;
   stopListening: () => void;
+  cancelListening: () => void;  // Stop without keeping what was heard
   resetTranscript: () => void;
   isSupported: boolean;
   error: string | null;
@@ -30,19 +31,11 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     
     const recognition = new SpeechRecognition();
     
-    // Configuration for BMO - IMPROVED for better pickup!
-    recognition.continuous = true;  // Keep listening (don't stop on pause)
-    recognition.interimResults = true;  // Show results as user speaks
-    recognition.lang = 'en-US';  // English
+    // Stop automatically when the user pauses, so one tap = one message
+    recognition.continuous = false;
+    recognition.interimResults = !/iPad|iPhone|iPod/.test(navigator.userAgent);  // iOS prefers final results only
+    recognition.lang = 'en-US';
     recognition.maxAlternatives = 1;
-    
-    // iOS-specific: These help with pickup
-    if (/iPad|iPhone|iPod/.test(navigator.userAgent)) {
-      console.log('📱 iOS detected - optimizing speech recognition');
-      // iOS works better with slightly different settings
-      recognition.continuous = false;  // iOS prefers non-continuous
-      recognition.interimResults = false;  // iOS prefers final results only
-    }
 
     // Event handlers
     recognition.onstart = () => {
@@ -152,6 +145,13 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     }
   }, []);
 
+  const cancelListening = useCallback(() => {
+    if (recognitionRef.current && isListeningRef.current) {
+      recognitionRef.current.abort();
+    }
+    setTranscript('');
+  }, []);
+
   const resetTranscript = useCallback(() => {
     setTranscript('');
     setError(null);
@@ -162,6 +162,7 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     isListening,
     startListening,
     stopListening,
+    cancelListening,
     resetTranscript,
     isSupported,
     error

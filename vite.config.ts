@@ -13,9 +13,7 @@ export default defineConfig({
       output: {
         manualChunks: {
           // Vendor chunks
-          'react-vendor': ['react', 'react-dom'],
-          // Separate large dependencies
-          'lucide': ['lucide-react']
+          'react-vendor': ['react', 'react-dom']
         }
       }
     },
@@ -23,9 +21,9 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: false, // Keep for debugging, set true for production
+        drop_console: false, // Keep console.warn/error in production builds
         drop_debugger: true,
-        pure_funcs: ['console.log'] // Remove console.logs in production
+        pure_funcs: ['console.log'] // ...but strip console.log
       }
     },
     // Chunk size warning limit
@@ -35,6 +33,6 @@ export default defineConfig({
   },
   // Optimize dependencies
   optimizeDeps: {
-    include: ['react', 'react-dom', 'lucide-react']
+    include: ['react', 'react-dom']
   }
 })
