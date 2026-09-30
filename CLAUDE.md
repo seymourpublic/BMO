@@ -10,7 +10,7 @@ BMO Companion is a full-stack AI chatbot bringing the BMO character from Adventu
 - **Backend**: Node.js + Express (port 3001)
 - **AI**: Anthropic Claude API (claude-haiku-4-5 — chosen for speed; benchmarked ~1.8s vs ~3.3s for Sonnet 5.5)
 - **Voice**: Fish Audio TTS with BMO voice clone (reference_id: `323847d4c5394c678e5909c2206725f6`)
-- **Deployment**: Vercel (frontend) + Railway (backend)
+- **Deployment**: Vercel (frontend) + Render (backend; set `FRONTEND_URL`, `ANTHROPIC_API_KEY`, `FISH_AUDIO_API_KEY`, `BMO_SPECIAL_JSON` there)
 
 ## Commands
 
@@ -40,7 +40,7 @@ Create `.env` in root (never commit):
 ```env
 ANTHROPIC_API_KEY=sk-ant-api03-xxx
 FISH_AUDIO_API_KEY=FAK_xxx
-FRONTEND_URL=https://your-app.vercel.app  # For CORS in production
+FRONTEND_URL=https://your-app.vercel.app  # For CORS in production. No trailing slash needed; comma-separate several
 VERCEL_PROJECT_PREFIX=bmo-  # Optional: allow this project's Vercel preview URLs (https://bmo-*.vercel.app)
 PORT=3001  # Railway sets automatically
 ```

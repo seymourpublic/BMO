@@ -150,8 +150,23 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000);
 
-// Railway sits behind a proxy - trust it so req.ip is the real client IP
+// The host (Render/Railway) sits behind a proxy - trust it so req.ip is the real client IP
 app.set('trust proxy', 1);
+
+// Frontend address(es) from FRONTEND_URL: comma-separated, and forgiving about a trailing
+// slash or path, since browsers send the origin without them ("https://x.vercel.app")
+const frontendOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(url => {
+    const trimmed = url.trim();
+    try {
+      return trimmed ? new URL(trimmed).origin : '';
+    } catch {
+      console.warn(`⚠️ Ignoring invalid FRONTEND_URL entry: "${trimmed}"`);
+      return '';
+    }
+  })
+  .filter(Boolean);
 
 // Enable CORS for our own frontend only
 const vercelPrefix = (process.env.VERCEL_PROJECT_PREFIX || '').replace(/[^a-z0-9-]/gi, '');
@@ -159,10 +174,10 @@ app.use(cors({
   origin: [
     'http://localhost:3000',  // Local development
     'http://localhost:5173',  // Vite dev server alternative port
-    process.env.FRONTEND_URL, // Production Vercel URL
+    ...frontendOrigins,       // Production frontend (Vercel)
     // This project's Vercel preview deployments, e.g. https://bmo-abc123.vercel.app
     vercelPrefix && new RegExp(`^https://${vercelPrefix}[a-z0-9-]*\\.vercel\\.app$`)
-  ].filter(Boolean),          // Remove undefined values
+  ].filter(Boolean),          // Remove empty values
   credentials: true,
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
@@ -685,7 +700,7 @@ app.listen(PORT, () => {
   console.log('🎮 BMO Backend Server Started!');
   console.log(`📡 Listening on port ${PORT}`);
   console.log(`🔑 API Key loaded: ${!!process.env.ANTHROPIC_API_KEY}`);
-  console.log(`🌐 CORS enabled for: ${process.env.FRONTEND_URL || 'localhost'}`);
+  console.log(`🌐 CORS enabled for: ${frontendOrigins.length ? frontendOrigins.join(', ') : 'localhost only'}${vercelPrefix ? ` + https://${vercelPrefix}*.vercel.app` : ''}`);
   console.log('');
   console.log('Ready to proxy requests to Anthropic API! 🚀');
 });
