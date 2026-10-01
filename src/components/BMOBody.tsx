@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { BMOTheme } from '../utils/themes';
+import { Pose } from '../utils/pose';
 
 export type OtherButton = 'up' | 'down' | 'left' | 'right' | 'triangle' | 'green';
 export type BodyMotion = 'wiggle' | 'dance' | null;
@@ -15,6 +16,7 @@ interface BMOBodyProps {
   hiddenButton?: boolean;         // The secret red button under the D-pad is showing
   onHiddenButton?: () => void;
   motion?: BodyMotion;
+  pose?: Pose;                // How the arms, legs and body move right now
   children: React.ReactNode;  // Screen contents
 }
 
@@ -39,7 +41,7 @@ const DPadArm: React.FC<{ dir: OtherButton; className: string; onPress: (b: Othe
 
 export const BMOBody: React.FC<BMOBodyProps> = ({
   theme, listening, redDisabled, onRed, onOtherButton, onBodyTap, onDpadCenterHold, hiddenButton, onHiddenButton,
-  motion, children
+  motion, pose = 'sway', children
 }) => {
   // Long-press detection for the middle of the D-pad
   const holdTimerRef = useRef(0);
@@ -54,11 +56,13 @@ export const BMOBody: React.FC<BMOBodyProps> = ({
   // Width is also limited by screen height so BMO + menu fit without scrolling
   return (
     <div className={`relative mx-auto mb-[clamp(20px,5.5vh,44px)] w-[min(80vw,360px,calc((100dvh-190px)*0.62))] min-w-[220px] ${motion ? `bmo-${motion}` : ''}`}>
+      {/* The pose wrapper moves arms, legs and body together (CSS in App.css) */}
+      <div className={`relative bmo-pose-${pose}`}>
       {/* Arms and legs (behind the body) */}
-      <div className="absolute -left-[9%] top-[52%] w-[12%] h-[10px] border-2 rounded-full -rotate-[25deg] origin-right" style={limb} />
-      <div className="absolute -right-[9%] top-[52%] w-[12%] h-[10px] border-2 rounded-full rotate-[25deg] origin-left" style={limb} />
-      <div className="absolute left-[28%] -bottom-[7%] w-[10px] h-[8%] border-2 rounded-b-full" style={limb} />
-      <div className="absolute right-[28%] -bottom-[7%] w-[10px] h-[8%] border-2 rounded-b-full" style={limb} />
+      <div className="bmo-arm-left absolute -left-[9%] top-[52%] w-[12%] h-[10px] border-2 rounded-full origin-right" style={limb} />
+      <div className="bmo-arm-right absolute -right-[9%] top-[52%] w-[12%] h-[10px] border-2 rounded-full origin-left" style={limb} />
+      <div className="bmo-leg-left absolute left-[28%] -bottom-[7%] w-[10px] h-[8%] border-2 rounded-b-full origin-top" style={limb} />
+      <div className="bmo-leg-right absolute right-[28%] -bottom-[7%] w-[10px] h-[8%] border-2 rounded-b-full origin-top" style={limb} />
 
       {/* Body */}
       <div
@@ -148,6 +152,7 @@ export const BMOBody: React.FC<BMOBodyProps> = ({
           <div className="w-[12%] h-[10px] rounded-sm" style={{ background: theme.outline }} />
           <div className="w-[12%] h-[10px] rounded-sm" style={{ background: theme.outline }} />
         </div>
+      </div>
       </div>
     </div>
   );

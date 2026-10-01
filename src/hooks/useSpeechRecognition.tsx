@@ -9,6 +9,8 @@ interface UseSpeechRecognition {
   resetTranscript: () => void;
   isSupported: boolean;
   error: string | null;
+  // Goes up by one each time a listening turn ends with nothing heard (not when cancelled)
+  endedEmpty: number;
 }
 
 export const useSpeechRecognition = (): UseSpeechRecognition => {
@@ -19,8 +21,11 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     return 'webkitSpeechRecognition' in window || 'SpeechRecognition' in window;
   });
 
+  const [endedEmpty, setEndedEmpty] = useState(0);
   const recognitionRef = useRef<any>(null);
   const isListeningRef = useRef<boolean>(false);  // Track listening state for iOS
+  const heardRef = useRef(false);       // Did this listening turn hear anything?
+  const cancelledRef = useRef(false);   // Was this turn cancelled on purpose?
 
   useEffect(() => {
     if (!isSupported) return;
@@ -68,6 +73,7 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
       // Update with final transcript if available, otherwise interim
       const textToUse = finalTranscript || interimTranscript;
       if (textToUse) {
+        heardRef.current = true;
         setTranscript(textToUse);
         console.log('📝 Updated transcript:', textToUse);
       }
@@ -106,6 +112,7 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
       // Set listening to false so transcript gets processed
       setIsListening(false);
       isListeningRef.current = false;
+      if (!heardRef.current && !cancelledRef.current) setEndedEmpty(n => n + 1);
       
       console.log('✅ Ready to process transcript');
     };
@@ -128,10 +135,15 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     if (recognitionRef.current && !isListeningRef.current) {
       setTranscript('');
       setError(null);
+      heardRef.current = false;
+      cancelledRef.current = false;
+      // Count as listening straight away, so a second start() before "onstart" is ignored
+      isListeningRef.current = true;
       console.log('🎤 Starting speech recognition...');
       try {
         recognitionRef.current.start();
       } catch (err) {
+        isListeningRef.current = false;
         console.error('Error starting recognition:', err);
         setError('Failed to start listening');
       }
@@ -146,6 +158,7 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
   }, []);
 
   const cancelListening = useCallback(() => {
+    cancelledRef.current = true;
     if (recognitionRef.current && isListeningRef.current) {
       recognitionRef.current.abort();
     }
@@ -165,6 +178,7 @@ export const useSpeechRecognition = (): UseSpeechRecognition => {
     cancelListening,
     resetTranscript,
     isSupported,
-    error
+    error,
+    endedEmpty
   };
 };

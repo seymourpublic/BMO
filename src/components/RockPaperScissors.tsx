@@ -16,7 +16,7 @@ const COUNT_BEAT_MS = 350;
 
 const REACTIONS: Record<RpsResult, { mood: Mood; lines: string[] }> = {
   friend: {
-    mood: 'surprised',
+    mood: 'pouty',
     lines: [
       'No fair! BMO demands a rematch!',
       'You are too good at this, friend!',

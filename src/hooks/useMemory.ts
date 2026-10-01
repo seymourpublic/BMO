@@ -121,6 +121,10 @@ export const useMemory = () => {
     update(m => ({ ...m, stats: { ...m.stats, konami: true } }));
   }, [update]);
 
+  const markOccasionSeen = useCallback((id: string, year: number) => {
+    update(m => ({ ...m, occasionsSeen: { ...m.occasionsSeen, [id]: year } }));
+  }, [update]);
+
   const markBathJoke = useCallback((date: string) => {
     update(m => ({ ...m, lastBathJoke: date }));
   }, [update]);
@@ -146,6 +150,7 @@ export const useMemory = () => {
     recordGameScore,
     unlockKonami,
     markBathJoke,
+    markOccasionSeen,
     forgetEverything
   };
 };

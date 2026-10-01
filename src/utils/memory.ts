@@ -29,6 +29,7 @@ export interface BMOMemory {
   pendingSince: number;  // Index into history of the first message not yet summarised
   special: boolean;      // This is the special friend BMO was made for
   lastBathJoke: string;  // Date (YYYY-MM-DD) of the last "Finn's bath time" joke
+  occasionsSeen: Record<string, number>;  // Special day id -> year its message was last shown
 }
 
 // What gets sent to the backend with each chat (matches server limits)
@@ -48,7 +49,8 @@ export const emptyMemory = (): BMOMemory => ({
   stats: { visits: 0, lastVisit: 0, rps: { friend: 0, bmo: 0, ties: 0 }, gameBest: 0, konami: false },
   pendingSince: 0,
   special: false,
-  lastBathJoke: ''
+  lastBathJoke: '',
+  occasionsSeen: {}
 });
 
 export const loadMemory = (): BMOMemory => {

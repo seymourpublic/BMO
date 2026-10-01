@@ -6,6 +6,7 @@ import { emoteToMood } from '../utils/emotes';
 import { soundEffects } from '../utils/sounds';
 import { bmoSongs, SongMelody } from '../utils/songs';
 import { PhraseEgg, asksForName, detectPhrase, extractIntroName } from '../utils/easterEggs';
+import { formatNow } from '../utils/conversation';
 import { STORY_PROMPTS } from '../utils/constants';
 import { HistoryMessage, MemoryPayload } from '../utils/memory';
 import { PLAYBACK_BLOCKED } from './useFishAudio';
@@ -89,6 +90,7 @@ export const useBMOConversation = ({
   const askedNameRef = useRef(false);
 
   const chatContext = (extra: ChatContext = {}): ChatContext => ({
+    now: formatNow(),
     ...getContextRef.current(),
     special: isSpecialRef.current || undefined,
     ...extra
@@ -116,6 +118,7 @@ export const useBMOConversation = ({
   // once it has been written; call finishSpeaking() to wait for the voice to finish.
   const streamReply = useCallback(async (request: {
     history?: Message[];
+    nudge?: boolean;
     greeting?: { hoursAway: number; hour: number; visits: number };
     context?: ChatContext;
   }) => {
@@ -320,6 +323,24 @@ export const useBMOConversation = ({
     return true;
   }, [streamReply, finishSpeaking]);
 
+  // BMO starts a conversation by itself. Returns false if it couldn't.
+  const nudge = useCallback(async () => {
+    let reply: string;
+    try {
+      reply = await streamReply({ nudge: true, history: recentForApi(historyRef.current), context: chatContext() });
+    } catch (error) {
+      if (!(error instanceof ReplySuperseded)) console.warn('BMO could not start a conversation:', error);
+      setMood('happy');
+      return false;
+    }
+    const entry: HistoryMessage = { role: 'assistant', text: reply };
+    historyRef.current = [...historyRef.current, { role: 'assistant', content: reply }];
+    setDisplayMessages(prev => [...prev, entry]);
+    onMessagesRef.current([entry]);
+    await finishSpeaking();
+    return true;
+  }, [streamReply, finishSpeaking]);
+
   // Say a short pre-written line (games, pokes, waking from a doze)
   const quickLine = useCallback(async (text: string, lineMood: Mood, spoken: boolean) => {
     setMood(lineMood);
@@ -349,6 +370,7 @@ export const useBMOConversation = ({
     greet,
     sing,
     singForFriend,
+    nudge,
     quickLine,
     interrupt,
     reset

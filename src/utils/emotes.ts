@@ -10,10 +10,17 @@ export const extractEmotes = (text: string): { cleanText: string; emotes: string
 };
 
 const EMOTE_MOODS: Array<[Mood, string[]]> = [
+  // Stronger feelings first, so "cries" isn't just "sad" and "sparkles" isn't just "excited"
+  ['love',      ['heart', 'love', 'adore']],
+  ['crying',    ['cries', 'crying', 'sob', 'weep']],
+  ['sleepy',    ['yawn', 'sleepy', 'drowsy']],
+  ['starry',    ['sparkle', 'star']],
+  ['blushing',  ['blush', 'shy']],
+  ['pouty',     ['pout', 'grump', 'hmph', 'huff']],
   ['excited',   ['excit', 'jump', 'bounce', 'yay', 'cheer', 'wiggl', 'spin']],
-  ['happy',     ['smile', 'grin', 'giggle', 'laugh', 'happy']],
+  ['happy',     ['smile', 'grin', 'giggle', 'laugh', 'happ']],  // 'happ' also matches "happily"
   ['surprised', ['gasp', 'wow', 'surpris', 'shock', 'amaz']],
-  ['sad',       ['sad', 'cry', 'tear', 'frown', 'sigh']],
+  ['sad',       ['sad', 'cry', 'tear', 'frown', 'sigh', 'sniff']],
   ['thinking',  ['think', 'ponder', 'hmm', 'wonder']],
   ['confused',  ['confus', 'puzzle', 'scratch']],
   ['excited',   ['screen', 'light', 'glow', 'blink']],  // Screen emotes flash excitedly

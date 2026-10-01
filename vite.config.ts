@@ -11,9 +11,9 @@ export default defineConfig({
     // Code splitting for better performance
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Vendor chunks
-          'react-vendor': ['react', 'react-dom']
+        // Keep React in its own chunk so it stays cached between app updates
+        manualChunks(id: string) {
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
         }
       }
     },

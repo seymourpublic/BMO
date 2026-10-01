@@ -1,4 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
+import { fetchBackend } from '../utils/api';
+import { getClip, putClip } from '../utils/voiceCache';
 
 interface UseFishAudioOutput {
   // Say one line. Resolves when BMO finishes talking (or is stopped); rejects if audio fails or is blocked
@@ -41,8 +43,6 @@ const WATCHDOG_INTERVAL_MS = 500;
 const STUCK_CHECKS = 3;
 const CLIP_GRACE_MS = 3000;
 const MAX_CLIP_SECONDS = 60;  // Used when the clip length isn't known
-
-const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
 // speak() rejects with this message when the browser blocks playback (needs a tap)
 export const PLAYBACK_BLOCKED = 'Failed to play audio';
@@ -143,20 +143,26 @@ export const useFishAudio = (): UseFishAudioOutput => {
   // --- Speech queue: sentences are voiced ahead and played back to back ---
 
   // Ask the backend to voice one piece of text
-  const fetchClip = (text: string): Promise<Blob> =>
-    fetch(`${API_BASE_URL}/api/tts`, {
+  // Voice one piece of text: from this device's voice cache if BMO has said it before,
+  // otherwise from the backend (retrying once if it's waking up), then saved for next time.
+  const fetchClip = async (text: string): Promise<Blob> => {
+    const cached = await getClip(text);
+    if (cached) return cached;
+
+    const response = await fetchBackend('/api/tts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text })
-    }).then(async response => {
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Backend TTS error: ${response.status}`);
-      }
-      const blob = await response.blob();
-      if (blob.size === 0) throw new Error('Received empty audio from backend');
-      return blob;
-    });
+    }, 1);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || `Backend TTS error: ${response.status}`);
+    }
+    const blob = await response.blob();
+    if (blob.size === 0) throw new Error('Received empty audio from backend');
+    putClip(text, blob);  // No need to wait
+    return blob;
+  };
 
   // Start voicing the next few clips so there's no gap between sentences
   const prefetch = (queue: SpeechQueue) => {

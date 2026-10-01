@@ -164,3 +164,151 @@ body {
 .bmo-mirror-world {
   background: linear-gradient(135deg, rgba(150, 90, 230, 0.28), rgba(90, 170, 255, 0.18));
 }
+
+/* ---------- New faces ---------- */
+@keyframes bmo-heartbeat {
+  0%, 100% { transform: scale(1); }
+  15%      { transform: scale(1.18); }
+  30%      { transform: scale(1); }
+  45%      { transform: scale(1.12); }
+}
+.bmo-heartbeat {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bmo-heartbeat 1.2s ease-in-out infinite;
+}
+@keyframes bmo-tear {
+  0%   { transform: translateY(0); opacity: 0; }
+  15%  { opacity: 1; }
+  100% { transform: translateY(26px); opacity: 0; }
+}
+.bmo-tear {
+  animation: bmo-tear 1.4s ease-in infinite;
+}
+.bmo-tear-late {
+  animation-delay: 0.7s;
+}
+@keyframes bmo-twinkle {
+  0%, 100% { transform: rotate(0deg) scale(1); }
+  50%      { transform: rotate(12deg) scale(1.1); }
+}
+.bmo-twinkle polygon {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bmo-twinkle 1s ease-in-out infinite;
+}
+@keyframes bmo-yawn {
+  0%, 70%, 100% { transform: scaleY(0.5); }
+  80%, 90%      { transform: scaleY(1.2); }
+}
+.bmo-yawn {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bmo-yawn 3.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bmo-heartbeat, .bmo-tear, .bmo-twinkle polygon, .bmo-yawn { animation: none; }
+}
+
+/* ---------- BMO's moving body ---------- */
+/* Resting arm angles (each pose below can change them) */
+.bmo-arm-left  { transform: rotate(-25deg); transition: transform 0.35s ease; }
+.bmo-arm-right { transform: rotate(25deg);  transition: transform 0.35s ease; }
+.bmo-leg-left, .bmo-leg-right { transition: transform 0.3s ease; }
+
+/* Wave hello with the right arm */
+@keyframes bmo-wave {
+  0%, 100% { transform: rotate(-55deg); }
+  50%      { transform: rotate(-20deg); }
+}
+.bmo-pose-wave .bmo-arm-right { animation: bmo-wave 0.45s ease-in-out infinite; }
+
+/* Happy bounce with both arms up */
+@keyframes bmo-hop {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-6px); }
+}
+.bmo-pose-bounce { animation: bmo-hop 0.6s ease-in-out infinite; }
+.bmo-pose-bounce .bmo-arm-left  { transform: rotate(30deg); }
+.bmo-pose-bounce .bmo-arm-right { transform: rotate(-30deg); }
+
+/* Sad: arms hang and BMO slumps a little */
+.bmo-pose-droop { transform: translateY(4px) scaleY(0.985); transition: transform 0.5s ease; }
+.bmo-pose-droop .bmo-arm-left  { transform: rotate(-60deg); }
+.bmo-pose-droop .bmo-arm-right { transform: rotate(60deg); }
+
+/* Surprised: arms fly up */
+.bmo-pose-surprise .bmo-arm-left  { transform: rotate(50deg); }
+.bmo-pose-surprise .bmo-arm-right { transform: rotate(-50deg); }
+
+/* Talking: small hand gestures */
+@keyframes bmo-gesture-left {
+  0%, 100% { transform: rotate(-25deg); }
+  50%      { transform: rotate(-5deg); }
+}
+@keyframes bmo-gesture-right {
+  0%, 100% { transform: rotate(25deg); }
+  50%      { transform: rotate(5deg); }
+}
+.bmo-pose-talk .bmo-arm-left  { animation: bmo-gesture-left 1.1s ease-in-out infinite; }
+.bmo-pose-talk .bmo-arm-right { animation: bmo-gesture-right 1.1s ease-in-out 0.55s infinite; }
+
+/* Dancing: legs step side to side, arms swing */
+@keyframes bmo-step-left {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  50%      { transform: translateY(-5px) rotate(-12deg); }
+}
+@keyframes bmo-step-right {
+  0%, 100% { transform: translateY(-5px) rotate(12deg); }
+  50%      { transform: translateY(0) rotate(0deg); }
+}
+@keyframes bmo-swing {
+  0%, 100% { transform: rotate(35deg); }
+  50%      { transform: rotate(-35deg); }
+}
+.bmo-pose-dance .bmo-leg-left  { animation: bmo-step-left 0.35s ease-in-out infinite; }
+.bmo-pose-dance .bmo-leg-right { animation: bmo-step-right 0.35s ease-in-out infinite; }
+.bmo-pose-dance .bmo-arm-left  { animation: bmo-swing 0.7s ease-in-out infinite; }
+.bmo-pose-dance .bmo-arm-right { animation: bmo-swing 0.7s ease-in-out 0.35s infinite reverse; }
+
+/* Idle: a gentle sway and the odd foot tap */
+@keyframes bmo-sway {
+  0%, 100% { transform: rotate(-0.8deg); }
+  50%      { transform: rotate(0.8deg); }
+}
+@keyframes bmo-foot-tap {
+  0%, 88%, 100% { transform: rotate(0deg); }
+  92%           { transform: rotate(-14deg); }
+  96%           { transform: rotate(0deg); }
+}
+.bmo-pose-sway { animation: bmo-sway 4s ease-in-out infinite; transform-origin: 50% 100%; }
+.bmo-pose-sway .bmo-leg-right { animation: bmo-foot-tap 6s ease-in-out infinite; }
+
+/* Asleep: slow breathing */
+@keyframes bmo-breathe {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(1.015); }
+}
+.bmo-pose-sleep { animation: bmo-breathe 4s ease-in-out infinite; transform-origin: 50% 100%; }
+.bmo-pose-sleep .bmo-arm-left  { transform: rotate(-40deg); }
+.bmo-pose-sleep .bmo-arm-right { transform: rotate(40deg); }
+
+@media (prefers-reduced-motion: reduce) {
+  [class*="bmo-pose-"], [class*="bmo-pose-"] .bmo-arm-left, [class*="bmo-pose-"] .bmo-arm-right,
+  [class*="bmo-pose-"] .bmo-leg-left, [class*="bmo-pose-"] .bmo-leg-right { animation: none; }
+}
+
+/* Special-day decorations float slowly up the sides */
+@keyframes bmo-float-deco {
+  0%   { transform: translateY(105vh) rotate(-6deg); opacity: 0; }
+  10%  { opacity: 0.9; }
+  90%  { opacity: 0.9; }
+  100% { transform: translateY(-15vh) rotate(6deg); opacity: 0; }
+}
+.bmo-float-deco {
+  top: 0;
+  animation: bmo-float-deco 9s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bmo-float-deco { animation: none; top: auto; bottom: 8%; }
+}

@@ -19,7 +19,10 @@ import { bmoSongs } from './utils/songs';
 import { unlockIOSAudio } from './utils/iosAudio';
 import { COLOR_THEMES, ThemeName, loadTheme, saveTheme } from './utils/themes';
 import { PhraseEgg, createKonamiTracker } from './utils/easterEggs';
-import { ChatContext } from './utils/api';
+import { INTERRUPT_MIN_WORDS, canNudge, isEcho, isGoodbye, wordCount } from './utils/conversation';
+import { isIOS } from './utils/iosAudio';
+import { ChatContext, Occasion, fetchTodaysOccasion, setWakingListener, wakeBackend } from './utils/api';
+import { poseFor } from './utils/pose';
 import './App.css';
 
 type Panel = 'none' | 'type' | 'history' | 'settings';
@@ -58,6 +61,18 @@ const BATTERY_DOWN_MS = 3000;
 const FIREWORKS_MS = 3500;
 const todayString = () => new Date().toISOString().slice(0, 10);
 
+// Conversation mode is remembered on this device
+const CONVO_KEY = 'bmo-conversation';
+const loadConversationMode = () => {
+  try {
+    return localStorage.getItem(CONVO_KEY) === 'on';
+  } catch {
+    return false;
+  }
+};
+// iPhone Safari can't listen while BMO's voice plays, so talking over BMO is tap-to-interrupt there
+const CAN_LISTEN_WHILE_SPEAKING = !isIOS();
+
 const App: React.FC = () => {
   const [themeName, setThemeName] = useState<ThemeName>(loadTheme);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
@@ -79,6 +94,10 @@ const App: React.FC = () => {
   const [fireworks, setFireworks] = useState(false);
   const [batteryLow, setBatteryLow] = useState(false);
   const [hour, setHour] = useState(() => new Date().getHours());
+  const [conversationMode, setConversationMode] = useState(loadConversationMode);
+  const [convoActive, setConvoActiveState] = useState(false);  // In a back-and-forth right now
+  const [waving, setWaving] = useState(false);
+  const [occasion, setOccasion] = useState<Occasion | null>(null);  // Today's special day, if any
 
   const theme = COLOR_THEMES[themeName];
   const captionRef = useRef<HTMLDivElement>(null);
@@ -87,26 +106,37 @@ const App: React.FC = () => {
   const lookTimerRef = useRef(0);
   const motionTimerRef = useRef(0);
   const modeRef = useRef<Mode>('none');
+  const occasionRef = useRef<Occasion | null>(null);
   const konamiRef = useRef(createKonamiTracker());
   const screenHoldRef = useRef({ timer: 0, fired: false });
+  const convoActiveRef = useRef(false);
+  const handledEmptyRef = useRef(0);       // Last "heard nothing" turn already dealt with
+  const lastNudgeRef = useRef(0);          // When BMO last spoke first
+  const unansweredNudgesRef = useRef(0);   // Nudges since the friend last said anything
+
+  const setConvoActive = useCallback((active: boolean) => {
+    convoActiveRef.current = active;
+    setConvoActiveState(active);
+  }, []);
 
   // Mode lives in a ref too so a chat sent in the same moment sees the new mode
   const setMode = useCallback((next: Mode) => {
     modeRef.current = next;
     setModeState(next);
-  }, []);
+    if (next !== 'none') setConvoActive(false);  // Games and modes end a conversation
+  }, [setConvoActive]);
 
   const {
     speak, startQueue, enqueue, endQueue, isSpeaking, stop: stopSpeaking, prewarmAudio, getMouthLevel, getProgress
   } = useFishAudio();
   const {
     transcript, isListening, startListening, cancelListening, resetTranscript,
-    isSupported: canListen, error: listenError
+    isSupported: canListen, error: listenError, endedEmpty
   } = useSpeechRecognition();
   const {
     memory, payload: memoryPayload, addMessages, recordVisit,
     setProfileField, deleteNote, recordRps, forgetEverything,
-    markSpecial, recordGameScore, unlockKonami, markBathJoke
+    markSpecial, recordGameScore, unlockKonami, markBathJoke, markOccasionSeen
   } = useMemory();
 
   // Easter-egg phrases the app handles (set in effect below, after the conversation hook exists)
@@ -115,12 +145,13 @@ const App: React.FC = () => {
     const current = modeRef.current;
     return {
       mode: current === 'detective' || current === 'football' ? current : undefined,
-      hour: new Date().getHours()
+      hour: new Date().getHours(),
+      occasion: occasionRef.current?.kind
     };
   }, []);
   const {
     mood, setMood, caption, setCaption, isThinking, isSinging, displayMessages,
-    send, tellStory, greet, sing, singForFriend, quickLine, interrupt, reset: resetConversation
+    send, tellStory, greet, sing, singForFriend, nudge, quickLine, interrupt, reset: resetConversation
   } = useBMOConversation({
     speak, startQueue, enqueue, endQueue, stopSpeaking,
     voiceEnabled, memory: memoryPayload, initialHistory: memory.history, onMessages: addMessages,
@@ -152,6 +183,12 @@ const App: React.FC = () => {
     // Next frame, so the same animation can restart
     requestAnimationFrame(() => setMotion(next));
     motionTimerRef.current = window.setTimeout(() => setMotion(null), ms);
+  }, []);
+
+  // Wave hello for a couple of seconds
+  const waveHello = useCallback(() => {
+    setWaving(true);
+    window.setTimeout(() => setWaving(false), 2500);
   }, []);
 
   // --- Easter eggs ---
@@ -248,7 +285,12 @@ const App: React.FC = () => {
   }, [memory.stats.gameBest, recordGameScore, quickLine]);
 
   // --- Idle life ---
+  // Set further down; idle actions use it to let BMO speak first
+  const tryNudgeRef = useRef<() => boolean>(() => false);
+
   const onIdleAction = useCallback((action: IdleAction) => {
+    if (tryNudgeRef.current()) return;  // Sometimes BMO starts a conversation instead
+    if (isBedtime(new Date().getHours()) && action !== 'hum') setMood('sleepy');  // Late at night BMO gets drowsy
     switch (action) {
       case 'look':
         glance('left', 700);
@@ -269,7 +311,7 @@ const App: React.FC = () => {
         setCaption(pickRandom(FOOTBALL_WHISPERS));
         break;
     }
-  }, [glance, setCaption, sing]);
+  }, [glance, setCaption, sing, setMood]);
 
   const onDoze = useCallback(() => {
     setDozing(true);
@@ -277,14 +319,35 @@ const App: React.FC = () => {
   }, [setCaption]);
 
   const idle = useIdle({ enabled: awake && !dozing && !busy, onAction: onIdleAction, onDoze });
+
+  // BMO speaks first: only after a long quiet, not too often, and never nagging
+  tryNudgeRef.current = () => {
+    const now = Date.now();
+    if (!canNudge({
+      quietForMs: idle.quietForMs(),
+      sinceLastNudgeMs: now - lastNudgeRef.current,
+      unanswered: unansweredNudgesRef.current
+    })) return false;
+    lastNudgeRef.current = now;
+    unansweredNudgesRef.current++;
+    nudge().then(spoke => {
+      // In conversation mode, listen for an answer
+      if (spoke && conversationMode && canListen) {
+        handledEmptyRef.current = endedEmpty;
+        setConvoActive(true);
+      }
+    });
+    return true;
+  };
   const { poke } = usePokes();
 
   const wakeFromDoze = useCallback(() => {
     setDozing(false);
+    waveHello();
     idle.bump();
     soundEffects.playEmote('gasp');
     quickLine('Oh! BMO was just resting its eyes!', 'surprised', true);
-  }, [idle, quickLine]);
+  }, [idle, quickLine, waveHello]);
 
   // --- Waking up and greeting ---
   // Unlock audio (must run inside a tap), sing hello, then say a personal hello
@@ -294,6 +357,7 @@ const App: React.FC = () => {
     await soundEffects.initialize();
     await bmoSongs.initialize();
     soundEffects.playButtonClick();
+    waveHello();
     const voiceWorked = await sing('Hello friend!', () => bmoSongs.playHelloFriendMelody());
     setAudioBlocked(!voiceWorked);
     if (!voiceWorked) {
@@ -318,11 +382,25 @@ const App: React.FC = () => {
       await quickLine("Beep beep! It's Finn's bath time! ...Oh. Wrong alarm.", 'excited', true);
     }
 
+    // Is today a special day for the special friend? (Checked before the greeting so BMO can mention it)
+    const today = memory.special ? await fetchTodaysOccasion(now).catch(() => null) : null;
+    occasionRef.current = today;
+    setOccasion(today);
+
     const greeted = await greet({ ...visit, hour: now.getHours() });
     if (!greeted) setCaption(GREETING_HINT);
-    if (greeted && memory.special && Math.random() < GREETING_SONG_CHANCE) await singForFriend();
+
+    // The special-day message plays once a year; on a birthday BMO also sings
+    if (today && memory.occasionsSeen[today.id] !== now.getFullYear()) {
+      markOccasionSeen(today.id, now.getFullYear());
+      soundEffects.playEmote('excited');
+      await quickLine(today.message, today.kind === 'birthday' ? 'starry' : 'love', true);
+      if (today.kind === 'birthday') await singForFriend();
+    } else if (greeted && memory.special && Math.random() < GREETING_SONG_CHANCE) {
+      await singForFriend();
+    }
   }, [prewarmAudio, sing, setCaption, recordVisit, greet, flashScreen, quickLine, memory.lastBathJoke, memory.special,
-      markBathJoke, singForFriend]);
+      memory.occasionsSeen, markBathJoke, markOccasionSeen, singForFriend, waveHello]);
 
   const wake = useCallback(async () => {
     if (awake || waking) return;
@@ -378,8 +456,10 @@ const App: React.FC = () => {
       quickLine('Good game, friend!', 'happy', false);
       return;
     }
-    if (isListening) {
+    if (isListening || convoActiveRef.current) {
+      // Red while listening, or during a conversation, stops
       cancelListening();
+      setConvoActive(false);
       soundEffects.playVoiceStop();
       setCaption('');
       return;
@@ -392,9 +472,13 @@ const App: React.FC = () => {
     interrupt();  // Stop any reply still being written or spoken
     soundEffects.playVoiceStart();
     setCaption('');
+    if (conversationMode) {
+      handledEmptyRef.current = endedEmpty;
+      setConvoActive(true);
+    }
     startListening();
   }, [wakeIfNeeded, celebrateKonami, gameOver, leaveMode, game, quickLine, isListening, cancelListening, canListen, interrupt,
-      startListening, setCaption]);
+      startListening, setCaption, conversationMode, endedEmpty, setConvoActive]);
 
   const pressDirection = useCallback((direction: LookDirection) => {
     if (game.active) {
@@ -457,6 +541,11 @@ const App: React.FC = () => {
     if (dozing) { wakeFromDoze(); return; }
     if (audioBlocked) { unlockAndGreet(); return; }
     idle.bump();
+    // In a conversation, tapping BMO while it talks interrupts it so the friend can speak
+    if (convoActiveRef.current && isSpeaking) {
+      interrupt();
+      return;
+    }
     // Pokes still count while BMO says a poke line, so the battery joke is reachable
     if (isListening || isThinking || isSinging || waking || game.active || mode !== 'none' || panel !== 'none' || batteryLow) return;
     const reaction = poke();
@@ -491,10 +580,22 @@ const App: React.FC = () => {
 
   const sendTyped = useCallback((text: string) => {
     idle.bump();
+    unansweredNudgesRef.current = 0;
     soundEffects.playSend();
     if (game.active) game.quit();
     send(text);  // Replaces any reply in progress
   }, [idle, send, game]);
+
+  // Start waking the backend as soon as the page opens (it sleeps when unused), and
+  // tell the friend what's happening if a request has to wait for it
+  useEffect(() => {
+    wakeBackend();
+    setWakingListener(() => {
+      setMood('thinking');
+      setCaption('BMO is waking up its brain… this can take a minute on the first try!');
+    });
+    return () => setWakingListener(null);
+  }, [setMood, setCaption]);
 
   // Keep the hour current for bedtime BMO
   useEffect(() => {
@@ -504,13 +605,63 @@ const App: React.FC = () => {
 
   // When listening ends with something heard, send it
   useEffect(() => {
-    if (!isListening && transcript.trim()) {
-      const heard = transcript.trim();
-      resetTranscript();
-      soundEffects.playVoiceStop();
-      send(heard);
+    if (isListening || !transcript.trim()) return;
+    const heard = transcript.trim();
+    resetTranscript();
+    // In a conversation the microphone may have just heard BMO's own voice: ignore that
+    if (convoActiveRef.current && isEcho(heard, caption)) return;
+    idle.bump();
+    unansweredNudgesRef.current = 0;
+    if (convoActiveRef.current && isGoodbye(heard)) setConvoActive(false);  // BMO says bye, then stops listening
+    soundEffects.playVoiceStop();
+    send(heard);
+  }, [isListening, transcript, resetTranscript, send, caption, idle, setConvoActive]);
+
+  // Talking over BMO: real words (not BMO's own echo) while it speaks stop it mid-sentence
+  useEffect(() => {
+    if (!isListening || !isSpeaking || !convoActiveRef.current) return;
+    if (wordCount(transcript) >= INTERRUPT_MIN_WORDS && !isEcho(transcript, caption)) {
+      interrupt();
+      setMood('surprised');
     }
-  }, [isListening, transcript, resetTranscript, send]);
+  }, [isListening, isSpeaking, transcript, caption, interrupt, setMood]);
+
+  // Conversation mode: keep the microphone going between turns
+  useEffect(() => {
+    if (!convoActive || isListening) return;
+    if (endedEmpty !== handledEmptyRef.current) {
+      handledEmptyRef.current = endedEmpty;
+      // Heard nothing after BMO finished talking: the friend has gone quiet
+      if (!isSpeaking && !isThinking) {
+        setConvoActive(false);
+        quickLine('BMO will be right here!', 'happy', true);
+        return;
+      }
+    }
+    if (transcript.trim()) return;  // About to be sent
+    if (isThinking || isSinging || waking || game.active || mode !== 'none' || panel !== 'none' || batteryLow || dozing) return;
+    if (isSpeaking && !CAN_LISTEN_WHILE_SPEAKING) return;  // iPhone: listen again once BMO finishes
+    startListening();
+  }, [convoActive, isListening, endedEmpty, isSpeaking, isThinking, isSinging, waking, game.active, mode, panel, batteryLow,
+      dozing, transcript, startListening, setConvoActive, quickLine]);
+
+  const toggleConversationMode = () => {
+    const next = !conversationMode;
+    setConversationMode(next);
+    try {
+      localStorage.setItem(CONVO_KEY, next ? 'on' : 'off');
+    } catch {
+      // Not critical
+    }
+    if (!next) {
+      setConvoActive(false);
+      cancelListening();
+    }
+    soundEffects.playButtonClick();
+    setCaption(next
+      ? 'Conversation mode on! Press the red button and we can just talk.'
+      : 'Conversation mode off. Press red each time you want to talk.');
+  };
 
   // A new caption starts at the top (but a caption that's still typing out keeps its place)
   const lastCaptionRef = useRef('');
@@ -596,8 +747,10 @@ const App: React.FC = () => {
   const closePanel = useCallback(() => setPanel('none'), []);
 
   // What BMO's screen caption shows right now
+  // (In a conversation the microphone also stays on while BMO talks; then BMO's words show)
+  const listeningOnly = isListening && !isSpeaking && !isThinking;
   const screenCaption = dozing ? ''
-    : isListening ? (transcript ? `“${transcript}…”` : 'BMO is listening…')
+    : listeningOnly ? (transcript ? `“${transcript}…”` : 'BMO is listening…')
     : caption;
   const asleep = !awake || dozing;
   const screenEffects = [
@@ -624,11 +777,11 @@ const App: React.FC = () => {
         </div>
       )}
 
-      <EffectOverlays flash={flash} fireworks={fireworks} />
+      <EffectOverlays flash={flash} fireworks={fireworks} occasion={awake ? occasion?.kind : null} />
 
       <BMOBody
         theme={theme}
-        listening={isListening}
+        listening={isListening || convoActive}
         redDisabled={isThinking || waking}
         onRed={pressRed}
         onOtherButton={pressOther}
@@ -637,6 +790,7 @@ const App: React.FC = () => {
         hiddenButton={hiddenButton}
         onHiddenButton={enterHiddenGame}
         motion={motion}
+        pose={poseFor({ dancing: motion === 'dance', waving, asleep, speaking: isSpeaking, mood })}
       >
         <button
           type="button"
@@ -692,7 +846,7 @@ const App: React.FC = () => {
                   eyesClosed={eyesClosed}
                   faceColor={theme.face}
                   asleep={asleep}
-                  listening={isListening}
+                  listening={listeningOnly}
                   speaking={isSpeaking}
                   singing={isSinging}
                   getMouthLevel={getMouthLevel}
@@ -714,7 +868,18 @@ const App: React.FC = () => {
       </BMOBody>
 
       {awake ? (
-        <nav className="flex gap-5" aria-label="BMO menu">
+        <nav className="flex gap-4" aria-label="BMO menu">
+          <button
+            type="button"
+            onClick={toggleConversationMode}
+            aria-pressed={conversationMode}
+            className="flex flex-col items-center gap-1 text-xs font-semibold"
+          >
+            <span className={`w-12 h-12 rounded-full border-2 shadow flex items-center justify-center text-xl ${conversationMode ? 'bg-[#43b649] border-[#2a7d30]' : 'bg-white/80 border-white hover:bg-white'}`}>
+              💬
+            </span>
+            {conversationMode ? 'Talk: on' : 'Talk mode'}
+          </button>
           {([
             ['type', '⌨️', 'Type'],
             ['history', '🕘', 'Messages'],

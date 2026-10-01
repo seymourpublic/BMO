@@ -10,10 +10,22 @@ export default {
   creatorLabel: 'my friend',
   messagesFrom: 'Someone who cares about you',
 
+  // Things about the friend that BMO knows and is curious about
+  friendFacts: [
+    'Alex studies music.'
+  ],
+
   // Shared one at a time when the friend seems sad, stressed, lonely or tired
   comfortMessages: [
     "You're doing better than you think.",
     "It's okay to rest."
+  ],
+
+  // Special days (month 1-12, optional day). A day-less occasion lasts the whole month.
+  // kind: 'birthday' (balloons) or 'met' (hearts)
+  occasions: [
+    { id: 'birthday', kind: 'birthday', month: 1, day: 1, message: 'Happy birthday, Alex!' },
+    { id: 'met', kind: 'met', month: 2, message: 'This is the month you two met!' }
   ],
 
   // Songs BMO sings. `melody` names a tune in src/utils/songs.ts ('bright', 'morning', 'special').

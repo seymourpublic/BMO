@@ -85,6 +85,19 @@ const useMouthFrame = (active: boolean, getMouthLevel?: () => number): MouthFram
   return frame;
 };
 
+// A heart shape centred on (x, y)
+const heartPath = (x: number, y: number, size: number) =>
+  `M${x} ${y + size * 0.9} C${x - size * 1.6} ${y - size * 0.2} ${x - size * 0.7} ${y - size * 1.3} ${x} ${y - size * 0.35} ` +
+  `C${x + size * 0.7} ${y - size * 1.3} ${x + size * 1.6} ${y - size * 0.2} ${x} ${y + size * 0.9} Z`;
+
+// A five-pointed star centred on (x, y)
+const starPoints = (x: number, y: number, r: number) =>
+  Array.from({ length: 10 }, (_, i) => {
+    const radius = i % 2 === 0 ? r : r * 0.45;
+    const angle = (Math.PI / 5) * i - Math.PI / 2;
+    return `${(x + radius * Math.cos(angle)).toFixed(1)},${(y + radius * Math.sin(angle)).toFixed(1)}`;
+  }).join(' ');
+
 const Eyes: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean; c: string }> = ({ mood, asleep, listening, c }) => {
   if (asleep) {
     return (
@@ -141,6 +154,58 @@ const Eyes: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean; c: str
           <ellipse cx="88" cy="20" rx="7" ry="9" fill={c} />
         </g>
       );
+    case 'love':
+      return (
+        <g className="bmo-heartbeat">
+          <path d={heartPath(32, 22, 7)} fill="#e43d5a" />
+          <path d={heartPath(88, 22, 7)} fill="#e43d5a" />
+        </g>
+      );
+    case 'crying':
+      return (
+        <>
+          <path d="M24 24 Q32 18 40 24" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />
+          <path d="M80 24 Q88 18 96 24" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />
+          {/* Tears that drip down */}
+          <ellipse className="bmo-tear" cx="30" cy="30" rx="2.2" ry="3.2" fill="#5aa9e6" />
+          <ellipse className="bmo-tear bmo-tear-late" cx="90" cy="30" rx="2.2" ry="3.2" fill="#5aa9e6" />
+        </>
+      );
+    case 'sleepy':
+      return (
+        <>
+          <path d="M25 24 L39 24" stroke={c} strokeWidth="4" strokeLinecap="round" />
+          <path d="M81 24 L95 24" stroke={c} strokeWidth="4" strokeLinecap="round" />
+          <path d="M27 24 Q32 29 37 24" fill={c} />
+          <path d="M83 24 Q88 29 93 24" fill={c} />
+        </>
+      );
+    case 'starry':
+      return (
+        <g className="bmo-twinkle">
+          <polygon points={starPoints(32, 21, 9)} fill={c} />
+          <polygon points={starPoints(88, 21, 9)} fill={c} />
+        </g>
+      );
+    case 'blushing':
+      return (
+        <>
+          <path d="M25 24 Q32 18 39 24" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />
+          <path d="M81 24 Q88 18 95 24" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />
+          <ellipse cx="22" cy="36" rx="8" ry="4.5" fill="#f28ba8" opacity="0.7" />
+          <ellipse cx="98" cy="36" rx="8" ry="4.5" fill="#f28ba8" opacity="0.7" />
+        </>
+      );
+    case 'pouty':
+      return (
+        <g className="bmo-blink">
+          <ellipse cx="32" cy="24" rx="5" ry="6" fill={c} />
+          <ellipse cx="88" cy="24" rx="5" ry="6" fill={c} />
+          {/* Grumpy brows slope down toward the middle */}
+          <path d="M24 11 L39 16" stroke={c} strokeWidth="3.5" strokeLinecap="round" />
+          <path d="M96 11 L81 16" stroke={c} strokeWidth="3.5" strokeLinecap="round" />
+        </g>
+      );
     default:
       return (
         <g className="bmo-blink">
@@ -184,6 +249,18 @@ const RestingMouth: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean
       return <path d="M46 48 L74 44" stroke={c} strokeWidth="4" strokeLinecap="round" />;
     case 'confused':
       return <path d="M44 48 Q52 42 60 48 T76 48" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+    case 'love':
+      return <path d="M42 42 Q60 62 78 42" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
+    case 'crying':
+      return <path d="M44 54 Q50 46 56 52 Q62 46 68 52 Q72 47 76 54" stroke={c} strokeWidth="3.5" fill="none" strokeLinecap="round" strokeLinejoin="round" />;
+    case 'sleepy':
+      return <ellipse className="bmo-yawn" cx="60" cy="49" rx="6" ry="7" fill={c} />;
+    case 'starry':
+      return <path d="M40 40 Q60 70 80 40 Z" fill={c} stroke={c} strokeWidth="2" strokeLinejoin="round" />;
+    case 'blushing':
+      return <path d="M50 47 Q60 53 70 47" stroke={c} strokeWidth="3.5" fill="none" strokeLinecap="round" />;
+    case 'pouty':
+      return <path d="M50 52 Q60 44 70 52" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
     default:
       return <path d="M42 42 Q60 60 78 42" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
   }

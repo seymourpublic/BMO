@@ -5,11 +5,32 @@ export type FlashKind = 'chop' | 'alarm';
 interface EffectOverlaysProps {
   flash: { kind: FlashKind; id: number } | null;  // `id` restarts the animation
   fireworks: boolean;
+  occasion?: 'birthday' | 'met' | null;           // Special-day decorations
 }
 
+// Gentle floating decorations along the sides of the screen
+const DECORATIONS = {
+  birthday: ['🎈', '🎉', '🎈', '🎂', '🎈', '🎊'],
+  met: ['💕', '💗', '💖', '💕', '💞', '💗']
+};
+
 // Full-screen effects for easter eggs: the BMO Chop / stranger-alarm flash and Konami fireworks
-export const EffectOverlays: React.FC<EffectOverlaysProps> = ({ flash, fireworks }) => (
+export const EffectOverlays: React.FC<EffectOverlaysProps> = ({ flash, fireworks, occasion }) => (
   <>
+    {occasion && (
+      <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden" aria-hidden="true">
+        {DECORATIONS[occasion].map((item, i) => (
+          <span
+            key={i}
+            className="absolute text-4xl bmo-float-deco"
+            // Alternate left and right edges so BMO itself stays clear
+            style={{ left: i % 2 === 0 ? `${4 + (i % 3) * 5}%` : `${82 + (i % 3) * 5}%`, animationDelay: `${i * 1.3}s` }}
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+    )}
     {flash && (
       <div
         key={flash.id}

@@ -32,6 +32,9 @@ npm run build
 
 # Preview production build
 npm run preview
+
+# Run the automated tests (Vitest; no real API calls)
+npm test
 ```
 
 ## Environment Variables
@@ -61,7 +64,11 @@ User Input → Frontend Cache (Memory/IndexedDB) → Backend Cache → Anthropic
               Update mood → BMOFace SVG expression
 ```
 
-### Backend API Endpoints (server.js)
+### Backend
+
+`app.js` builds the Express app (tests import it); `server.js` just starts it (`node server.js` on Render).
+
+### Backend API Endpoints (app.js)
 
 - `POST /api/chat` - Proxies to Anthropic Claude API with 30-min response cache. Takes `messages` plus optional `memory` (validated, appended to the system prompt) or a `greeting` of numbers only (server writes the instruction; not cached). The system prompt is server-owned (`personality.js`). Validates max 20 messages, roles `user`/`assistant`, max 2,000 chars each. Rate-limited to 20 req/min per IP (in-memory).
 - `POST /api/chat/stream` - Same checks as `/api/chat`, but streams the reply as Server-Sent Events (`{type:'text'|'done'|'error'}`) so the app can show and speak the first sentence right away. This is what the app uses. Cached replies are sent as one `text` event.
@@ -69,6 +76,20 @@ User Input → Frontend Cache (Memory/IndexedDB) → Backend Cache → Anthropic
 - `POST /api/tts` - Proxies to Fish Audio with 1-hour audio cache (max 50 files). Intentionally NOT length- or rate-limited (owner's decision).
 - `GET /health` - Health check with cache statistics
 - `POST /api/preload` - Preload common TTS phrases
+
+### Conversation
+
+- **Conversation mode** (💬 "Talk mode" in the menu, remembered per device): red starts a back-and-forth; BMO listens again after every reply. Silence for one turn, "bye BMO" / "stop listening", or red ends it (`App.tsx`, conversation effects).
+- **Talking over BMO**: during a reply the mic stays on (not on iOS); real words stop BMO mid-sentence, BMO's own voice is ignored via `isEcho` (`src/utils/conversation.ts`). On iOS, tapping the screen interrupts.
+- **BMO speaks first**: an idle action may become a nudge (`canNudge`: 60 s quiet, 5 min apart, max 2 unanswered, 50%). Chats accept `nudge: true`.
+- **Date & weather**: the client sends `now` (local date/time text); the server adds rough local weather from the request IP (`weather.js`: ipwho.is → GeoJS fallback → Open-Meteo, cached 30 min, failures 2 min; `/health` warms it).
+
+### BMO comes alive
+
+- **Faces:** 12 moods incl. `love` (heart eyes), `crying` (dripping tears), `sleepy`, `starry`, `blushing`, `pouty`; emotes map to them in `src/utils/emotes.ts`.
+- **Body:** `poseFor()` (`src/utils/pose.ts`) picks dance > wave > sleep > surprise > droop > talk > bounce > sway; `BMOBody` applies `bmo-pose-*` CSS to arms/legs/body (App.css).
+- **Steven Universe:** BMO's favourite show (personality block; never sings lyrics).
+- **Special days:** `occasions` in the private config (birthday 17 Sep; "the month we met" = all of October). `POST /api/special/today` answers for the special friend only and never returns dates; decorations via `EffectOverlays`; message once a year (`occasionsSeen`).
 
 ### Special friend & easter eggs
 
@@ -146,7 +167,10 @@ Emotes map to moods via `src/utils/emotes.ts`: `*excited*` → 'excited' mood �
 
 ## Notes
 
-- No testing framework configured
+- Tests: `npm test` (Vitest). Unit tests live next to the code (`src/**/*.test.ts`); backend tests in `app.test.js` use Supertest with a blank API key so nothing reaches Anthropic or Fish Audio
+- Free hosting sleeps: the page pings `/health` on load (`wakeBackend`), and `fetchBackend` retries network failures (2/5/10/20 s) while showing "BMO is waking up its brain…"
+- Voice clips are cached on the device in Cache Storage (`src/utils/voiceCache.ts`, 150 clips, least recently used evicted)
+- Prompt caching isn't used: BMO's prompt (~1-2K tokens) is below Haiku 4.5's 4,096-token minimum
 - CORS whitelist in server.js: localhost, `FRONTEND_URL`, and `VERCEL_PROJECT_PREFIX` previews only
 - Never commit — the owner commits changes themselves
 - Conversation history trimmed to last 6 messages before API calls

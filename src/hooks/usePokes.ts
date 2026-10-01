@@ -20,7 +20,7 @@ const reactionFor = (count: number): PokeReaction => {
   }
   if (count >= 6) {
     // Only spoken the first time, so repeated pokes don't queue up voice lines
-    return { line: 'BMO is not a button! ...Well, BMO IS buttons, but still!', mood: 'sad', spoken: count === 6, sound: 'sad' };
+    return { line: 'BMO is not a button! ...Well, BMO IS buttons, but still!', mood: 'pouty', spoken: count === 6, sound: 'sad' };
   }
   if (count >= 3) {
     return { line: 'Hey! That tickles!', mood: 'confused', spoken: false, sound: 'surprise' };

@@ -25,7 +25,13 @@ export const useIdle = ({ enabled, onAction, onDoze }: Options) => {
   const onDozeRef = useRef(onDoze);
   onDozeRef.current = onDoze;
 
-  const bump = useCallback(() => setActivity(a => a + 1), []);
+  const lastActivityRef = useRef(Date.now());
+  const bump = useCallback(() => {
+    lastActivityRef.current = Date.now();
+    setActivity(a => a + 1);
+  }, []);
+  // How long since the friend last did anything
+  const quietForMs = useCallback(() => Date.now() - lastActivityRef.current, []);
 
   useEffect(() => {
     if (!enabled) return;
@@ -51,5 +57,5 @@ export const useIdle = ({ enabled, onAction, onDoze }: Options) => {
     };
   }, [enabled, activity]);
 
-  return { bump };
+  return { bump, quietForMs };
 };

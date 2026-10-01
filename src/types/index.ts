@@ -5,5 +5,7 @@ export interface Message {
 }
 
 // Mood types
-export type Mood = 'happy' | 'excited' | 'thinking' | 'sad' | 'surprised' | 'confused';
+export type Mood =
+  | 'happy' | 'excited' | 'thinking' | 'sad' | 'surprised' | 'confused'
+  | 'love' | 'crying' | 'sleepy' | 'starry' | 'blushing' | 'pouty';
 
