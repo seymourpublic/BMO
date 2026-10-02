@@ -19,6 +19,7 @@ interface BMOFaceProps {
   singing?: boolean;
   // Voice loudness 0-1 while speaking, or -1 if it can't be measured
   getMouthLevel?: () => number;
+  sunglasses?: string;  // Frame colour when BMO is wearing sunglasses (fashion show / wardrobe)
 }
 
 type MouthFrame = 0 | 1 | 2;  // closed, half open, open
@@ -267,7 +268,7 @@ const RestingMouth: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean
 };
 
 export const BMOFace: React.FC<BMOFaceProps> = memo(({
-  mood, look, eyesClosed, faceColor, asleep, listening, speaking, singing, getMouthLevel
+  mood, look, eyesClosed, faceColor, asleep, listening, speaking, singing, getMouthLevel, sunglasses
 }) => {
   const flapping = !!(speaking && !asleep);
   const frame = useMouthFrame(flapping, getMouthLevel);
@@ -280,6 +281,15 @@ export const BMOFace: React.FC<BMOFaceProps> = memo(({
       {flapping
         ? (singing ? <SingMouth frame={frame} c={faceColor} /> : <TalkMouth frame={frame} c={faceColor} />)
         : <RestingMouth mood={mood} asleep={asleep} listening={listening} c={faceColor} />}
+      {sunglasses && !asleep && (
+        <g className="bmo-accessory-on" aria-hidden="true">
+          <rect x="18" y="10" width="28" height="20" rx="7" fill="#1d1d1d" stroke={sunglasses} strokeWidth="3" />
+          <rect x="74" y="10" width="28" height="20" rx="7" fill="#1d1d1d" stroke={sunglasses} strokeWidth="3" />
+          <path d="M46 17 Q60 11 74 17" fill="none" stroke={sunglasses} strokeWidth="3" />
+          <path d="M23 15 L30 15" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
+          <path d="M79 15 L86 15" stroke="#ffffff" strokeWidth="2" strokeLinecap="round" opacity="0.6" />
+        </g>
+      )}
       {asleep && (
         <text x="100" y="14" fontSize="9" fontWeight="bold" fill={faceColor} className="bmo-zzz">z</text>
       )}

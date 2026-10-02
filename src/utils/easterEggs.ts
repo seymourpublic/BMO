@@ -5,10 +5,25 @@ export type PhraseEgg =
   | 'clickIt' | 'clockIt' | 'chop'
   | 'detective' | 'caseClosed'
   | 'football' | 'footballBye'
-  | 'originalSong' | 'sing';
+  | 'originalSong' | 'sing' | 'camera'
+  | 'cook' | 'recipeBook' | 'shoppingList'
+  | 'study' | 'quiz' | 'hardOnes' | 'studyCards' | 'teach'
+  | 'fashionShow' | 'outfitCheck' | 'wardrobe';
 
 const PHRASES: Array<[PhraseEgg, RegExp]> = [
   ['originalSong', new RegExp(SPECIAL_SONG_TRIGGERS.map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'i')],
+  ['wardrobe', /\b(bmo'?s|your) wardrobe\b|\bdress (up )?bmo\b|\bbmo,? dress up\b/i],
+  ['fashionShow', /\bfashion show\b|\brunway\b|\bcatwalk\b/i],
+  ['outfitCheck', /\bhow do i look\b|\boutfit check\b|\bdo i look (ok|okay|good|nice)\b|\brate my (outfit|look)\b/i],
+  ['hardOnes', /\bquiz (me on )?my (hard|tricky) (ones|questions|cards)\b|\bmy (hard|tricky) ones\b|\breview my (study )?cards\b/i],
+  ['studyCards', /\bstudy cards\b|\bshow (me )?my cards\b/i],
+  ['quiz', /\bquiz me\b|\bmake (me )?a quiz\b|\btest me on\b/i],
+  ['teach', /\blet me teach you\b|\bteach bmo\b|\bi('ll| will) teach you\b|\bcan i teach you\b|\bwant to learn about\b/i],
+  ['study', /\bstudy time\b|\bfocus (mode|time)\b|\bhelp me (study|focus)\b|\btime to study\b|\bpomodoro\b|\blet'?s study\b/i],
+  ['recipeBook', /\brecipe book\b|\b(show|open) (me )?my recipes\b/i],
+  ['shoppingList', /\bshopping list\b/i],
+  ['cook', /\blet'?s (cook|bake)\b|\bhelp me (cook|bake)\b|\bcooking time\b|\bkitchen mode\b|\bwhat (can|should) i (make|cook)\b|\bteach me (to|how to) cook\b/i],
+  ['camera', /\btake (a|my|our|a cute) (picture|photo|pic|selfie)\b|\bbmo is camera\b|\bselfie\b/i],
   ['clickIt', /\bclick it\b/i],
   ['clockIt', /\bclock it\b/i],
   ['chop', /\bbmo chop\b|\bkarate\b/i],

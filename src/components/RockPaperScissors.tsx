@@ -2,15 +2,15 @@ import React, { useCallback, useRef, useState } from 'react';
 import { Mood } from '../types';
 import { soundEffects } from '../utils/sounds';
 import { RpsResult } from '../hooks/useMemory';
+import { HANDS, Hand, PREDICTION_LINE_CHANCE, predictionLine } from '../utils/growth';
 
-export type Hand = 'rock' | 'paper' | 'scissors';
+export type { Hand };
 type Phase = 'choose' | 'counting' | 'reveal';
 
 // D-pad picks: left = rock, up = paper, right = scissors
 export const HAND_FOR_DIRECTION: Partial<Record<string, Hand>> = { left: 'rock', up: 'paper', right: 'scissors' };
 
 const BEATS: Record<Hand, Hand> = { rock: 'scissors', paper: 'rock', scissors: 'paper' };
-const HANDS: Hand[] = ['rock', 'paper', 'scissors'];
 const COUNT_WORDS = ['Rock…', 'Paper…', 'Scissors…'];
 const COUNT_BEAT_MS = 350;
 
@@ -50,10 +50,12 @@ export const judge = (friend: Hand, bmo: Hand): RpsResult =>
   friend === bmo ? 'ties' : BEATS[friend] === bmo ? 'friend' : 'bmo';
 
 interface GameOptions {
-  onResult: (result: RpsResult, line: string, mood: Mood) => void;
+  onResult: (result: RpsResult, line: string, mood: Mood, friendHand: Hand) => void;
+  // BMO's hand for this round (it learns the friend's habits); random if not given
+  pickBmo?: () => { hand: Hand; smart: boolean };
 }
 
-export const useRockPaperScissors = ({ onResult }: GameOptions) => {
+export const useRockPaperScissors = ({ onResult, pickBmo }: GameOptions) => {
   const [active, setActive] = useState(false);
   const [phase, setPhase] = useState<Phase>('choose');
   const [countIndex, setCountIndex] = useState(0);
@@ -90,15 +92,20 @@ export const useRockPaperScissors = ({ onResult }: GameOptions) => {
       if (round !== roundRef.current) return;
     }
 
-    const bmo = pickRandom(HANDS);
+    const choice = pickBmo ? pickBmo() : { hand: pickRandom(HANDS), smart: false };
+    const bmo = choice.hand;
     const outcome = judge(hand, bmo);
     setBmoHand(bmo);
     setResult(outcome);
     setPhase('reveal');
     soundEffects.playEmote(outcome === 'bmo' ? 'excited' : outcome === 'friend' ? 'sad' : 'happy');
     const reaction = REACTIONS[outcome];
-    onResult(outcome, pickRandom(reaction.lines), reaction.mood);
-  }, [active, phase, onResult]);
+    // When BMO's prediction wins, it sometimes says it worked the friend out
+    const line = outcome === 'bmo' && choice.smart && Math.random() < PREDICTION_LINE_CHANCE
+      ? predictionLine(hand)
+      : pickRandom(reaction.lines);
+    onResult(outcome, line, reaction.mood, hand);
+  }, [active, phase, onResult, pickBmo]);
 
   return { active, phase, countIndex, friendHand, bmoHand, result, start, quit, pick };
 };

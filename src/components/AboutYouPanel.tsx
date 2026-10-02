@@ -86,7 +86,7 @@ export const AboutYouPanel: React.FC<AboutYouProps> = ({ profile, notes, onField
 
       {confirmingForget ? (
         <div className="flex items-center gap-2 rounded-lg bg-[#ffe3e3] p-3">
-          <span className="flex-1 text-sm">Forget your profile, notes and all past messages?</span>
+          <span className="flex-1 text-sm">Forget your profile, notes, all past messages and the photo album?</span>
           <button type="button" onClick={() => { onForget(); setConfirmingForget(false); }} className="rounded-full px-3 py-1.5 text-sm font-bold text-white bg-[#e43d3d]">
             Forget
           </button>

@@ -3,6 +3,13 @@ import { COLOR_THEMES, SECRET_THEMES, ThemeName } from '../utils/themes';
 import { Sheet } from './Sheet';
 import { AboutYouPanel } from './AboutYouPanel';
 import { Profile, ProfileField } from '../utils/memory';
+import { PhotoSetting } from '../utils/photoAlbum';
+
+const PHOTO_CHOICES: Array<[PhotoSetting, string, string]> = [
+  ['album', 'Keep in album', 'Saved on this device'],
+  ['comment', 'Just look', 'BMO comments, nothing saved'],
+  ['download', 'Album + save', 'Also lets you save them to your phone']
+];
 
 interface SettingsPanelProps {
   themeName: ThemeName;
@@ -10,6 +17,8 @@ interface SettingsPanelProps {
   secretsUnlocked: boolean;  // Show secret themes (Konami code found)
   voiceEnabled: boolean;
   onVoiceChange: (enabled: boolean) => void;
+  photoSetting: PhotoSetting;
+  onPhotoSettingChange: (setting: PhotoSetting) => void;
   profile: Profile;
   notes: string[];
   onProfileChange: (field: ProfileField, value: string) => void;
@@ -19,7 +28,7 @@ interface SettingsPanelProps {
 }
 
 export const SettingsPanel: React.FC<SettingsPanelProps> = ({
-  themeName, onThemeChange, secretsUnlocked, voiceEnabled, onVoiceChange,
+  themeName, onThemeChange, secretsUnlocked, voiceEnabled, onVoiceChange, photoSetting, onPhotoSettingChange,
   profile, notes, onProfileChange, onDeleteNote, onForget, onClose
 }) => (
   <Sheet title="Settings" onClose={onClose}>
@@ -63,6 +72,25 @@ export const SettingsPanel: React.FC<SettingsPanelProps> = ({
         className="w-6 h-6 accent-[#43b649]"
       />
     </label>
+
+    <fieldset className="py-2">
+      <legend className="text-sm font-bold">Photos BMO takes</legend>
+      <span className="block text-xs opacity-70 mb-2">Photos only go to BMO's brain to be looked at, and are never kept there</span>
+      <div className="grid grid-cols-3 gap-2">
+        {PHOTO_CHOICES.map(([value, label, hint]) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onPhotoSettingChange(value)}
+            aria-pressed={photoSetting === value}
+            className={`rounded-xl border-2 p-2 text-left ${photoSetting === value ? 'border-[#e43d3d] bg-white' : 'border-transparent bg-white/50 hover:bg-white/80'}`}
+          >
+            <span className="block text-xs font-bold">{label}</span>
+            <span className="block text-[11px] leading-tight opacity-70">{hint}</span>
+          </button>
+        ))}
+      </div>
+    </fieldset>
 
     <hr className="my-5 border-[#c9e6dd]" />
     <AboutYouPanel

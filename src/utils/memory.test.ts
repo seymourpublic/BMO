@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { BMOMemory, emptyMemory, mergeLearned, toPayload, trimHistory, MEMORY_LIMITS } from './memory';
+import { describe, expect, it, vi } from 'vitest';
+import { BMOMemory, GROWTH_LIMITS, addDays, addThrow, dueFollowUp, emptyMemory, loadMemory, mergeGrowth, mergeLearned, toPayload, trimHistory, MEMORY_LIMITS } from './memory';
 import { emoteToMood } from './emotes';
 import { trimToSentence } from './api';
 
@@ -87,5 +87,60 @@ describe('trimToSentence', () => {
 
   it('keeps text that has no good place to cut', () => {
     expect(trimToSentence('Hi. BMO is telling a very long story without stopping')).toBe('Hi. BMO is telling a very long story without stopping');
+  });
+});
+
+describe('growing memory', () => {
+  const today = '2026-10-01';
+  const noGrowth = { followUps: [], words: [], diary: '' };
+
+  it('loads an old save without the new fields', () => {
+    const old = { profile: { name: 'Sam' }, history: [{ role: 'user', text: 'hi' }, { role: 'assistant', text: 'hello' }], stats: { visits: 3 } };
+    const store = new Map([['bmo-memory-v1', JSON.stringify(old)]]);
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store.get(k) ?? null });
+    const loaded = loadMemory();
+    vi.unstubAllGlobals();
+    expect(loaded.stats.chats).toBe(1);  // Counted from the history it has
+    expect(loaded.followUps).toEqual([]);
+    expect(loaded.features).toEqual({ dreamed: [], used: [] });
+    expect(loaded.stats.rpsThrows).toEqual([]);
+  });
+
+  it('finds a follow-up once its day has come, until it gets too old', () => {
+    const followUps = [{ about: 'Trying dumplings again', askAfter: '2026-10-04' }];
+    expect(dueFollowUp(followUps, today)).toBeNull();
+    expect(dueFollowUp(followUps, '2026-10-04')?.about).toBe('Trying dumplings again');
+    expect(dueFollowUp(followUps, addDays('2026-10-04', GROWTH_LIMITS.followUpExpiryDays + 1))).toBeNull();
+  });
+
+  it('merges new follow-ups and words without duplicates', () => {
+    const memory = { ...emptyMemory(), words: [{ word: 'lekker', meaning: 'great' }], followUps: [{ about: 'Exam on Friday', askAfter: '2026-10-03' }] };
+    const merged = mergeGrowth(memory, {
+      followUps: [{ about: 'exam on friday', askAfter: '2026-10-04' }],
+      words: [{ word: 'Lekker', meaning: 'great, tasty' }, { word: 'click it click it' }],
+      diary: ''
+    }, today);
+    expect(merged.followUps).toEqual([{ about: 'exam on friday', askAfter: '2026-10-04' }]);
+    expect(merged.words).toEqual([{ word: 'Lekker', meaning: 'great, tasty' }, { word: 'click it click it' }]);
+  });
+
+  it('keeps at most three diary lines a day and sixty days of diary', () => {
+    let memory = { ...emptyMemory(), diary: [{ date: '2026-07-01', lines: ['Long ago'] }] };
+    for (let i = 0; i < 5; i++) memory = mergeGrowth(memory, { ...noGrowth, diary: `Line ${i}` }, today);
+    expect(memory.diary).toEqual([{ date: today, lines: ['Line 0', 'Line 1', 'Line 2'] }]);
+  });
+
+  it('sends only the newest diary lines and the words with each chat', () => {
+    const memory = { ...emptyMemory(), words: [{ word: 'lekker' }], diary: [{ date: '2026-09-30', lines: ['a', 'b'] }, { date: today, lines: ['c', 'd'] }] };
+    const payload = toPayload(memory);
+    expect(payload.diary).toEqual(['b', 'c', 'd']);
+    expect(payload.words).toEqual([{ word: 'lekker' }]);
+  });
+
+  it('remembers only the last 30 throws', () => {
+    let throws = addThrow([], 'rock');
+    for (let i = 0; i < 40; i++) throws = addThrow(throws, 'paper');
+    expect(throws).toHaveLength(30);
+    expect(throws[0]).toBe('paper');
   });
 });

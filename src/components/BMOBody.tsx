@@ -1,6 +1,8 @@
 import React, { useRef } from 'react';
 import { BMOTheme } from '../utils/themes';
 import { Pose } from '../utils/pose';
+import { Outfit } from '../utils/fashion';
+import { Cape, NeckAccessory, TopAccessory } from './BMOAccessory';
 
 export type OtherButton = 'up' | 'down' | 'left' | 'right' | 'triangle' | 'green';
 export type BodyMotion = 'wiggle' | 'dance' | null;
@@ -15,8 +17,11 @@ interface BMOBodyProps {
   onDpadCenterHold?: () => void;  // Long-press on the middle of the D-pad (reveals the hidden button)
   hiddenButton?: boolean;         // The secret red button under the D-pad is showing
   onHiddenButton?: () => void;
+  onDot?: () => void;             // The small blue dot: BMO's camera
   motion?: BodyMotion;
   pose?: Pose;                // How the arms, legs and body move right now
+  outfit?: Outfit | null;     // An accessory BMO is wearing (sunglasses are drawn in the face)
+  outfitColour?: string;      // The outfit's colour, already checked (falls back to the theme)
   children: React.ReactNode;  // Screen contents
 }
 
@@ -40,8 +45,8 @@ const DPadArm: React.FC<{ dir: OtherButton; className: string; onPress: (b: Othe
 );
 
 export const BMOBody: React.FC<BMOBodyProps> = ({
-  theme, listening, redDisabled, onRed, onOtherButton, onBodyTap, onDpadCenterHold, hiddenButton, onHiddenButton,
-  motion, pose = 'sway', children
+  theme, listening, redDisabled, onRed, onOtherButton, onBodyTap, onDpadCenterHold, hiddenButton, onHiddenButton, onDot,
+  motion, pose = 'sway', outfit, outfitColour, children
 }) => {
   // Long-press detection for the middle of the D-pad
   const holdTimerRef = useRef(0);
@@ -59,10 +64,14 @@ export const BMOBody: React.FC<BMOBodyProps> = ({
       {/* The pose wrapper moves arms, legs and body together (CSS in App.css) */}
       <div className={`relative bmo-pose-${pose}`}>
       {/* Arms and legs (behind the body) */}
-      <div className="bmo-arm-left absolute -left-[9%] top-[52%] w-[12%] h-[10px] border-2 rounded-full origin-right" style={limb} />
-      <div className="bmo-arm-right absolute -right-[9%] top-[52%] w-[12%] h-[10px] border-2 rounded-full origin-left" style={limb} />
-      <div className="bmo-leg-left absolute left-[28%] -bottom-[7%] w-[10px] h-[8%] border-2 rounded-b-full origin-top" style={limb} />
-      <div className="bmo-leg-right absolute right-[28%] -bottom-[7%] w-[10px] h-[8%] border-2 rounded-b-full origin-top" style={limb} />
+      {/* Sized relative to BMO so the waves and gestures stay visible on small phones */}
+      <div className="bmo-arm-left absolute -left-[14%] top-[50%] w-[17%] h-[3.6%] min-h-[9px] border-2 rounded-full origin-right" style={limb} />
+      <div className="bmo-arm-right absolute -right-[14%] top-[50%] w-[17%] h-[3.6%] min-h-[9px] border-2 rounded-full origin-left" style={limb} />
+      <div className="bmo-leg-left absolute left-[27%] -bottom-[8%] w-[4.2%] min-w-[9px] h-[9%] border-2 rounded-b-full origin-top" style={limb} />
+      <div className="bmo-leg-right absolute right-[27%] -bottom-[8%] w-[4.2%] min-w-[9px] h-[9%] border-2 rounded-b-full origin-top" style={limb} />
+      {/* Accessories (the key restarts the "put on" sparkle when the outfit changes) */}
+      {outfit?.accessory === 'cape' && outfitColour && <Cape key={outfitColour} c={outfitColour} />}
+      {outfit && outfitColour && <TopAccessory key={`${outfit.accessory}-${outfitColour}`} id={outfit.accessory} c={outfitColour} />}
 
       {/* Body */}
       <div
@@ -74,18 +83,27 @@ export const BMOBody: React.FC<BMOBodyProps> = ({
           boxShadow: `inset -10px -10px 0 ${theme.bodyShade}`
         }}
       >
-        {/* Screen */}
-        <div
-          className="relative aspect-[4/3] rounded-[10px] border-[3px] overflow-hidden"
-          style={{ background: theme.screen, borderColor: theme.outline }}
-        >
-          {children}
+        {/* Screen (the wrapper lets a bow tie or scarf hang just below it) */}
+        <div className="relative">
+          <div
+            className="relative aspect-[4/3] rounded-[10px] border-[3px] overflow-hidden"
+            style={{ background: theme.screen, borderColor: theme.outline }}
+          >
+            {children}
+          </div>
+          {outfit && outfitColour && <NeckAccessory key={`${outfit.accessory}-${outfitColour}`} id={outfit.accessory} c={outfitColour} />}
         </div>
 
         {/* Disc slot + small blue dot */}
         <div className="flex items-center gap-[6%] mt-[7%]">
           <div className="flex-1 h-[9px] rounded-full" style={{ background: theme.outline }} />
-          <div className="w-[16px] h-[16px] rounded-full border-2" style={{ background: DOT, borderColor: DOT_EDGE }} />
+          <button
+            type="button"
+            aria-label="Take a photo with BMO"
+            onClick={onDot}
+            className="relative w-[16px] h-[16px] rounded-full border-2 active:translate-y-[1px] before:absolute before:-inset-[12px] before:content-['']"
+            style={{ background: DOT, borderColor: DOT_EDGE }}
+          />
         </div>
 
         {/* D-pad and buttons */}

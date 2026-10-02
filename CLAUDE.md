@@ -71,7 +71,7 @@ User Input → Frontend Cache (Memory/IndexedDB) → Backend Cache → Anthropic
 ### Backend API Endpoints (app.js)
 
 - `POST /api/chat` - Proxies to Anthropic Claude API with 30-min response cache. Takes `messages` plus optional `memory` (validated, appended to the system prompt) or a `greeting` of numbers only (server writes the instruction; not cached). The system prompt is server-owned (`personality.js`). Validates max 20 messages, roles `user`/`assistant`, max 2,000 chars each. Rate-limited to 20 req/min per IP (in-memory).
-- `POST /api/chat/stream` - Same checks as `/api/chat`, but streams the reply as Server-Sent Events (`{type:'text'|'done'|'error'}`) so the app can show and speak the first sentence right away. This is what the app uses. Cached replies are sent as one `text` event.
+- `POST /api/chat/stream` - Same checks as `/api/chat`, but streams the reply as Server-Sent Events (`{type:'text'|'done'|'error'}`) so the app can show and speak the first sentence right away. This is what the app uses. Cached replies are sent as one `text` event. May also carry one shrunk photo: `image` (JPEG/PNG data URL, max 300 KB decoded), `imageKind` (`snapshot` | `memory`) and an optional `caption` (max 200 chars); photo requests are never cached or logged, and only this route accepts bodies up to 1 MB (256 KB elsewhere).
 - `POST /api/remember` - Updates BMO's memory of the friend from recent messages (Haiku returns JSON `{name, pronouns, personality, notes}`, clamped server-side). Same rate limit as chat.
 - `POST /api/tts` - Proxies to Fish Audio with 1-hour audio cache (max 50 files). Intentionally NOT length- or rate-limited (owner's decision).
 - `GET /health` - Health check with cache statistics
@@ -89,7 +89,132 @@ User Input → Frontend Cache (Memory/IndexedDB) → Backend Cache → Anthropic
 - **Faces:** 12 moods incl. `love` (heart eyes), `crying` (dripping tears), `sleepy`, `starry`, `blushing`, `pouty`; emotes map to them in `src/utils/emotes.ts`.
 - **Body:** `poseFor()` (`src/utils/pose.ts`) picks dance > wave > sleep > surprise > droop > talk > bounce > sway; `BMOBody` applies `bmo-pose-*` CSS to arms/legs/body (App.css).
 - **Steven Universe:** BMO's favourite show (personality block; never sings lyrics).
+- **Friend facts:** `friendFacts` in the private config (e.g. she studies finance). Finance gets child-level curiosity and never real investment advice (`buildFactsBlock` in personality.js).
 - **Special days:** `occasions` in the private config (birthday 17 Sep; "the month we met" = all of October). `POST /api/special/today` answers for the special friend only and never returns dates; decorations via `EffectOverlays`; message once a year (`occasionsSeen`).
+
+### Growing BMO
+
+BMO feels like it's learning (spec: `docs/superpowers/specs/2026-10-01-growing-bmo-design.md`).
+
+**How BMO learns:** `/api/remember` (every 6 messages / on leave) also takes `today` and returns `growth`:
+- **`followUps`:** `{about, askAfter}`. The server keeps dates between today and +60 days.
+- **`words`:** her phrases and slang.
+- **`diary`:** one line.
+
+`mergeGrowth` in `src/utils/memory.ts` stores them on the device:
+- follow-ups: max 10, expire 14 days after the ask date
+- words: max 15
+- diary: 3 lines a day, 60 days
+
+**What goes into chats:**
+- Chats send the words and the last 3 diary lines. The diary is private and is never shown or read out.
+- A due follow-up goes only with a greeting or nudge (`followUp`) and is removed once sent.
+
+**Features BMO grows (`src/utils/growth.ts` `FEATURES`):** when a feature ships, add an entry with a `dream` and a `firstUse` line.
+- **Dream:** one per wake after the greeting, skipped if a special moment already happened.
+- **First use:** the gasp the first time it's used (`firstUse(id)` in `useMemory`).
+- **New devices** (`visits` 0) start with every feature dreamed.
+
+**Milestones (`MILESTONES`):**
+- chats 50/100/250/500/1000, days 7/30/100/365 from `firstVisit`, first photo, first memory
+- one per visit: fireworks + an AI line via the chat context `milestone` (server whitelist), with `MILESTONE_FALLBACK` if that fails
+- songs at 100 and 365 days
+
+**Games:**
+- **Rock Paper Scissors:** `pickBmoHand` predicts from her last 30 throws. The smart chance is 0 for the first 5 games, then 10% rising by 1% per game, capped at 45%.
+- **Hidden game:** BMO mentions her best score.
+
+### Kitchen companion (7b-1)
+
+Spec: `docs/superpowers/specs/2026-10-01-companions-design.md`.
+
+**Starting:** voice/typed only, via `detectPhrase`:
+- `cook`: "let's cook", "what can I make", "kitchen mode"
+- `recipeBook`
+- `shoppingList`
+
+**Getting a recipe:** `POST /api/recipe` takes `{image?}` or `{request?}` (≤300 chars) and returns `{recipe}` or `{unreadable:true}`.
+- Built by `RECIPE_PROMPT` in personality.js and cleaned by `sanitizeRecipe` in app.js.
+- A photographed recipe is copied faithfully; a dish name or fridge list gets "BMO's version".
+- Food safety is required for recipes BMO writes.
+
+**On the device:**
+- **Session:** `useKitchen` reducer: choose → loading → shopping → cooking → photo → rating → tweak. Saved in `bmo-kitchen-v1` and resumed on wake.
+- **Logic:** `useKitchenCompanion` turns speech and taps into steps (`kitchenCommands.ts`: next/back/repeat/ingredients/steps left/done/stop).
+- **Questions:** anything else goes to chat with `mode:'kitchen'` + `kitchen` context (`buildKitchenBlock`).
+- **Screen:** `KitchenScreen` is a layer over BMO's screen, because the screen itself is a button and buttons can't nest. It shows a chef hat, the ingredient checklist, the step with Back/Next, a speech bubble for BMO's answers, and hearts.
+
+**Listening:** hands-free in the kitchen, but only while BMO is quiet (kitchen speakers cause echo).
+
+**Photos:**
+- **Recipe photos:** the back camera with a shutter button (`CameraView` `facing`/`shutter`/`reading`). The readable copy is 1280 px; `encodeUnder` steps quality down to ≤280 KB.
+- **Dish photos:** the chat `imageKind: 'dish'`.
+
+**Storage:**
+- **Recipe book:** `recipeBook.ts`, IndexedDB `BMOPhotosDB` v2 store `recipes` (max 100). `localDb.ts` steps aside on `versionchange` and retries a blocked open.
+- **Shopping list:** `shoppingList.ts` (`bmo-shopping-v1`, max 60).
+- **When a dish is finished:** `stats.dishes`, the `first-dish` milestone, and a follow-up for the next day.
+
+### Fashion show (7c)
+
+Spec: `docs/superpowers/specs/2026-10-02-fashion-show-design.md`. Starts by phrase:
+- `fashionShow`: "fashion show", "runway"
+- `outfitCheck`: "how do I look", "outfit check"
+- `wardrobe`: "BMO's wardrobe", "dress up BMO"
+
+**How it runs:** `useFashionCompanion` (mode `fashion`) with `FashionScreen` on BMO's screen (stage lights, camera, polaroid, speech bubble).
+- **Runway:** a 5 s selfie countdown per look; "that's all" or 6 looks → finale.
+- **Outfit check:** 3 s countdown and a kind optional tip, then the mode ends.
+
+**Server:**
+- `POST /api/fashion` takes `{image, style}` and returns `{award, comment, tip?, accessory, colour}` (`buildFashionPrompt`: clothes/colours/styling/confidence only, never body/face/weight; `sanitizeFashion` clamps and strips *emotes*).
+- `POST /api/fashion/finale` takes the award titles and returns `{winner, line}`. Photos are never re-sent.
+
+**Accessories:** 8 items (`fashion.ts` `ACCESSORIES`) drawn by `BMOAccessory.tsx` inside BMO's pose layer.
+- top: bow, topHat, flowerCrown, tiara
+- under the screen: bowTie, scarf
+- behind: cape
+- sunglasses are drawn in `BMOFace`, so they follow its eyes
+
+**Which outfit shows:** the show look (`showOutfit`) wins until the next wake; otherwise the friend's wardrobe choice (`bmo-outfit-v1`) is worn.
+
+**Saving looks:** they follow "Photos BMO takes" and are saved as photo kind `look` (album tab "Our looks").
+
+### Study companion (7b-2)
+
+All three study modes run in `useStudyCompanion`, with screens in `StudyScreens.tsx`. They start by voice or typed phrase only:
+- `study`: "study time", "focus mode"
+- `quiz`: "quiz me"
+- `hardOnes`: "quiz my hard ones"
+- `studyCards`
+- `teach`: "let me teach you about…"
+
+**Focus timer (mode `study`):**
+- **Rounds:** 25/5 by default, with a 15-minute break after 4 rounds. "N minutes" sets the length (`parseMinutes`).
+- **Timing:** based on real clock times, and the screen is kept on with Wake Lock.
+- **During focus:** BMO is quiet; a tap gets a 4-second whisper with the time left. Red listens once for "how long left", "pause", "keep going" or "stop studying".
+- **Saved:** `focusMinutes` in `bmo-study-v1`.
+
+**Quiz (mode `quiz`):**
+- **Making it:** a notes photo or screenshot (readable copy, `shrinkPageForReading`) goes to `POST /api/quiz` and comes back as 5–8 questions from the notes only (`QUIZ_PROMPT`, `sanitizeQuiz`), or as unreadable.
+- **Judging:** `POST /api/quiz/check` returns `{verdict: right|partly|notYet, reply}` (`QUIZ_CHECK_PROMPT`). If it fails, she marks the answer herself with ✓/✗.
+- **On the device:** "I don't know" and "skip" are handled locally, and verdicts are recorded as soon as she answers.
+- **Listening:** hands-free while BMO is quiet.
+
+**Study cards (`studyCards.ts`, max 200):**
+- **Spacing:** a miss goes to box 1, due tomorrow. Right answers move it up a box, due in 2/4/7/14 days; mastered after box 5.
+- **Offer on wake:** when ≥3 are due.
+
+**Teach BMO (mode `teach`):** a chat mode block where BMO is a curious student and never gives financial advice. Companions pass her words on with `send(text, true)`, plain talk with no phrases, so "teach you about…" can't restart teach mode in a loop.
+
+### BMO is camera
+
+- **Triggers:** "BMO, take a picture" / "selfie" / "BMO is camera" (`detectPhrase` → `camera`), the small blue dot, or 📷 Photos → "Take a photo".
+- **Camera** (`src/components/CameraView.tsx`): front camera fills BMO's screen (mirrored), 3-2-1 beeps, flash + shutter, camera off immediately. The photo shows on BMO's screen while BMO comments (`lookAtPhoto` in `useBMOConversation`; only a text note goes into the history).
+- **Shrinking** (`src/utils/images.ts`): everything is shrunk on the device. Album copy max 1600 px (JPEG 0.85), AI copy max 768 px (JPEG 0.8); gallery picks up to 25 MB. A 7 MB phone photo became 203 KB.
+- **Album** (`src/utils/photoAlbum.ts`, IndexedDB `BMOPhotosDB`, max 60, oldest removed): tabs "BMO's photos" / "Our memories" in `AlbumPanel`. Memories are added by the friend with an optional caption and always kept; idle BMO sometimes shows one (1 in 6 idle actions). Photos are saved as soon as BMO's comment arrives.
+- **Settings → Photos BMO takes** (`bmo-photo-setting`): `album` (default) / `comment` (nothing saved) / `download` (album + "Save to phone"). Forget everything also clears the album.
+- Spec: `docs/superpowers/specs/2026-10-01-bmo-is-camera-design.md`.
 
 ### Special friend & easter eggs
 
@@ -105,7 +230,7 @@ The backend uses the official `@anthropic-ai/sdk` (built-in retries).
 
 ### Interface
 
-"BMO is the app": one show-accurate BMO fills the screen. BMO starts asleep; the big red button wakes it, then is tap-to-talk (Space on desktop). Replies show as a caption on BMO's screen while the mouth flaps in time with the voice. Three icons below BMO open Type, Messages (full history) and Settings (theme, voice on/off). Design spec: `docs/superpowers/specs/2026-09-29-look-and-interface-design.md`.
+"BMO is the app": one show-accurate BMO fills the screen. BMO starts asleep; the big red button wakes it, then is tap-to-talk (Space on desktop). Replies show as a caption on BMO's screen while the mouth flaps in time with the voice. Icons below BMO: Talk mode, Type, Photos (album + camera), Messages (full history) and Settings (theme, voice, photos, About you). Design spec: `docs/superpowers/specs/2026-09-29-look-and-interface-design.md`.
 
 ### Memory (on-device only)
 
@@ -133,6 +258,7 @@ Green = story, triangle = Rock Paper Scissors (D-pad picks, red quits), D-pad = 
 - `src/hooks/useIdle.ts`, `src/hooks/usePokes.ts` - Idle life and poke reactions
 - `src/components/RockPaperScissors.tsx` - Game logic + screen
 - `src/components/AboutYouPanel.tsx` - Profile/notes editor in Settings
+- `src/components/CameraView.tsx`, `AlbumPanel.tsx` - BMO is camera + photo album
 - `src/utils/constants.ts` - Story prompts
 - `personality.js` (root) - BMO personality system prompt, used by server.js
 
@@ -173,5 +299,7 @@ Emotes map to moods via `src/utils/emotes.ts`: `*excited*` → 'excited' mood �
 - Prompt caching isn't used: BMO's prompt (~1-2K tokens) is below Haiku 4.5's 4,096-token minimum
 - CORS whitelist in server.js: localhost, `FRONTEND_URL`, and `VERCEL_PROJECT_PREFIX` previews only
 - Never commit — the owner commits changes themselves
+- Dev server: the file watcher misses some edits on this machine (often ones made with the Edit tool). After editing, `touch` the changed files; if they're still stale, restart Vite.
+- Scripts that edit code: write them with the Write tool. Heredocs mangle backslashes (\b became a backspace character in regexes once).
 - Conversation history trimmed to last 6 messages before API calls
 - Max tokens set to 300 for faster responses

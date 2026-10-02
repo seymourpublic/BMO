@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { Message, Mood } from '../types';
-import { ChatContext, fetchSong, recogniseFriend, streamChat } from '../utils/api';
+import { ChatContext, PhotoForBmo, fetchSong, recogniseFriend, streamChat } from '../utils/api';
 import { createSentenceSplitter, captionText } from '../utils/sentenceSplitter';
 import { emoteToMood } from '../utils/emotes';
 import { soundEffects } from '../utils/sounds';
@@ -119,6 +119,9 @@ export const useBMOConversation = ({
   const streamReply = useCallback(async (request: {
     history?: Message[];
     nudge?: boolean;
+    followUp?: string;
+    milestone?: string;
+    photo?: PhotoForBmo;
     greeting?: { hoursAway: number; hour: number; visits: number };
     context?: ChatContext;
   }) => {
@@ -261,12 +264,14 @@ export const useBMOConversation = ({
     [singSong]
   );
 
-  const send = useCallback(async (userMessage: string) => {
+  // `plain`: just talk, no easter-egg phrases (companions passing on the friend's words use this,
+  // so "let me teach you about…" doesn't restart teach mode in a loop)
+  const send = useCallback(async (userMessage: string, plain = false) => {
     const text = userMessage.trim();
     if (!text) return;
 
     // Easter eggs first: some replace the chat, others (like modes) change it
-    const egg = detectPhrase(text);
+    const egg = plain ? null : detectPhrase(text);
     if (egg === 'originalSong') {
       await singSong('original');
       return;
@@ -304,11 +309,12 @@ export const useBMOConversation = ({
   }, [converse]);
 
   // Personal hello on waking. Returns false if it couldn't be fetched (caller falls back).
-  const greet = useCallback(async (info: { hoursAway: number; hour: number; visits: number }) => {
+  // `followUp`: something from the friend's life for BMO to ask about
+  const greet = useCallback(async (info: { hoursAway: number; hour: number; visits: number }, followUp?: string) => {
     setMood('thinking');
     let reply: string;
     try {
-      reply = await streamReply({ greeting: info, context: chatContext() });
+      reply = await streamReply({ greeting: info, followUp, context: chatContext() });
     } catch (error) {
       if (error instanceof ReplySuperseded) return true;  // Friend already moved on
       console.warn('Greeting failed, using the default hello:', error);
@@ -324,13 +330,62 @@ export const useBMOConversation = ({
   }, [streamReply, finishSpeaking]);
 
   // BMO starts a conversation by itself. Returns false if it couldn't.
-  const nudge = useCallback(async () => {
+  const nudge = useCallback(async (followUp?: string) => {
     let reply: string;
     try {
-      reply = await streamReply({ nudge: true, history: recentForApi(historyRef.current), context: chatContext() });
+      reply = await streamReply({ nudge: true, followUp, history: recentForApi(historyRef.current), context: chatContext() });
     } catch (error) {
       if (!(error instanceof ReplySuperseded)) console.warn('BMO could not start a conversation:', error);
       setMood('happy');
+      return false;
+    }
+    const entry: HistoryMessage = { role: 'assistant', text: reply };
+    historyRef.current = [...historyRef.current, { role: 'assistant', content: reply }];
+    setDisplayMessages(prev => [...prev, entry]);
+    onMessagesRef.current([entry]);
+    await finishSpeaking();
+    return true;
+  }, [streamReply, finishSpeaking]);
+
+  // BMO looks at a photo (a camera snapshot or a memory) and says something about it.
+  // Only a short note goes into the conversation history, never the picture itself.
+  // Resolves with BMO's comment, or null if it couldn't look. `onComment` gets the comment as soon
+  // as it's written (before BMO finishes saying it), so the photo can be saved straight away.
+  const lookAtPhoto = useCallback(async (photo: PhotoForBmo, onComment?: (comment: string) => void): Promise<string | null> => {
+    setIsThinking(true);
+    setMood('thinking');
+    setCaption(photo.kind === 'memory' ? 'BMO is looking at your memory…' : photo.kind === 'dish' ? 'BMO is looking at your dish…' : 'BMO is looking at the picture…');
+    const note = photo.kind === 'memory'
+      ? `(I showed BMO a memory photo${photo.caption ? `: "${photo.caption}"` : ''})`
+      : photo.kind === 'dish'
+        ? `(I showed BMO the ${photo.caption || 'dish'} I just cooked)`
+        : "(I took a photo with BMO's camera)";
+    let reply: string;
+    try {
+      reply = await streamReply({ photo, history: recentForApi(historyRef.current), context: chatContext() });
+    } catch (error) {
+      if (error instanceof ReplySuperseded) return null;
+      await showError(error);
+      return null;
+    }
+    const userEntry: HistoryMessage = { role: 'user', text: photo.kind === 'memory' ? '📷 (a memory)' : photo.kind === 'dish' ? '🍽️ (my dish)' : '📷 (a photo)' };
+    const replyEntry: HistoryMessage = { role: 'assistant', text: reply };
+    historyRef.current = [...historyRef.current, { role: 'user', content: note }, { role: 'assistant', content: reply }];
+    setDisplayMessages(prev => [...prev, userEntry, replyEntry]);
+    // Photos aren't sent to /api/remember; only the reply is
+    onMessagesRef.current([replyEntry]);
+    onComment?.(captionText(reply));
+    await finishSpeaking();
+    return captionText(reply);
+  }, [streamReply, finishSpeaking, showError]);
+
+  // BMO celebrates a milestone in its own words. Returns false if it couldn't (caller falls back).
+  const celebrate = useCallback(async (milestone: string) => {
+    let reply: string;
+    try {
+      reply = await streamReply({ milestone, history: recentForApi(historyRef.current), context: chatContext() });
+    } catch (error) {
+      if (!(error instanceof ReplySuperseded)) console.warn('BMO could not celebrate in its own words:', error);
       return false;
     }
     const entry: HistoryMessage = { role: 'assistant', text: reply };
@@ -371,6 +426,8 @@ export const useBMOConversation = ({
     sing,
     singForFriend,
     nudge,
+    celebrate,
+    lookAtPhoto,
     quickLine,
     interrupt,
     reset

@@ -136,6 +136,53 @@ class SoundEffects {
     this.playNotes([[523, 0.12], [659, 0.12], [784, 0.12], [659, 0.12], [784, 0.12], [1047, 0.3]], 'square', 0.06);
   }
 
+  // Dreamy twinkle: BMO remembers a dream about something it learned
+  playSparkle() {
+    this.playNotes([[1319, 0.09], [1568, 0.09], [2093, 0.09], [1760, 0.09], [2637, 0.25]], 'sine', 0.07);
+  }
+
+  // Drumroll while the judges decide
+  playDrumroll(seconds = 1.6) {
+    const beats = Math.round(seconds / 0.06);
+    this.playNotes(Array.from({ length: beats }, (_, i) => [i % 2 ? 110 : 98, 0.06] as [number, number]), 'triangle', 0.09);
+  }
+
+  // A sparkly little runway tune
+  playRunway() {
+    this.playNotes([[392, 0.12], [523, 0.12], [659, 0.12], [784, 0.24], [659, 0.12], [784, 0.12], [1047, 0.36]], 'square', 0.05);
+  }
+
+  // Ta-da! for an award
+  playTada() {
+    this.playNotes([[523, 0.1], [659, 0.1], [784, 0.1], [1047, 0.35]], 'triangle', 0.1);
+  }
+
+  // Camera countdown beep (higher on "1")
+  playCountdown(last: boolean) {
+    this.playNotes([[last ? 1047 : 784, 0.12]], 'square', 0.07);
+  }
+
+  // Camera shutter: a quick click-clack of noise
+  playShutter() {
+    if (!this.enabled || !this.audioContext) return;
+    const ctx = this.audioContext;
+    const length = Math.floor(ctx.sampleRate * 0.12);
+    const buffer = ctx.createBuffer(1, length, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < length; i++) {
+      // Two short bursts of noise, fading out
+      const inBurst = i < length * 0.3 || (i > length * 0.55 && i < length * 0.8);
+      data[i] = inBurst ? (Math.random() * 2 - 1) * (1 - i / length) : 0;
+    }
+    const source = ctx.createBufferSource();
+    const gain = ctx.createGain();
+    gain.gain.value = 0.25;
+    source.buffer = buffer;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start();
+  }
+
   // Play emote sound (different for each type)
   playEmote(emoteName: string) {
     if (!this.enabled || !this.audioContext) return;

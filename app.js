@@ -6,7 +6,9 @@ import dotenv from 'dotenv';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   BMO_PERSONALITY, buildMemoryBlock, buildGreetingTurn, buildModeBlock, buildTimeBlock, buildSpecialBlock,
-  buildWeatherBlock, buildOccasionBlock, NUDGE_TURN, REMEMBER_PROMPT
+  buildWeatherBlock, buildOccasionBlock, buildPhotoTurn, buildFollowUpLine, buildMilestoneTurn, MILESTONES,
+  buildKitchenBlock, NUDGE_TURN, REMEMBER_PROMPT, RECIPE_PROMPT, QUIZ_PROMPT, QUIZ_CHECK_PROMPT,
+  FASHION_ACCESSORIES, buildFashionPrompt, FASHION_FINALE_PROMPT
 } from './personality.js';
 import { lookupWeather, weatherForChat } from './weather.js';
 
@@ -51,6 +53,10 @@ const anthropic = process.env.ANTHROPIC_API_KEY ? new Anthropic() : null;
 
 export const app = express();
 const JSON_BODY_LIMIT = '256kb';
+const PHOTO_BODY_LIMIT = '1mb';           // Only the chat stream accepts a (shrunk) photo
+const MAX_IMAGE_BYTES = 300 * 1024;       // Photos are shrunk on the device to well under this
+const IMAGE_KINDS = ['snapshot', 'memory', 'dish'];
+const MAX_CAPTION_CHARS = 200;
 
 // Chat request limits
 const MAX_CHAT_MESSAGES = 20;
@@ -61,6 +67,10 @@ const chatRateLimits = new Map();        // ip -> recent request timestamps
 
 // Memory limits (memory lives on the user's device and is sent with requests)
 const MEMORY_LIMITS = { name: 40, pronouns: 40, personality: 300, noteChars: 120, notes: 20 };
+// Growing BMO: limits shared with src/utils/memory.ts (GROWTH_LIMITS)
+const GROWTH_LIMITS = { words: 15, wordChars: 40, meaningChars: 80, diaryInChat: 3, diaryChars: 160, followUpChars: 120 };
+const NEW_PER_REFLECTION = 3;      // Follow-ups / words one memory update may add
+const FOLLOW_UP_MAX_DAYS = 60;     // How far ahead a follow-up may be scheduled
 const MAX_REMEMBER_MESSAGES = 30;
 const CLAUDE_MODEL = 'claude-haiku-4-5';  // Fastest model; ~1.8s, short spoken-length replies
 
@@ -186,7 +196,11 @@ app.use(cors({
 }));
 
 // Parse JSON bodies
-app.use(express.json({ limit: JSON_BODY_LIMIT }));
+// Small JSON bodies everywhere, except the chat stream, which may carry one shrunk photo
+const smallJson = express.json({ limit: JSON_BODY_LIMIT });
+const photoJson = express.json({ limit: PHOTO_BODY_LIMIT });
+const PHOTO_ROUTES = new Set(['/api/chat/stream', '/api/recipe', '/api/quiz', '/api/fashion']);
+app.use((req, res, next) => (PHOTO_ROUTES.has(req.path) ? photoJson : smallJson)(req, res, next));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -343,7 +357,44 @@ function validateMemory(memory) {
   if (!Array.isArray(notes) || notes.length > MEMORY_LIMITS.notes || !notes.every(n => isShortString(n, MEMORY_LIMITS.noteChars))) {
     return { error: `Memory notes must be at most ${MEMORY_LIMITS.notes} texts of ${MEMORY_LIMITS.noteChars} characters` };
   }
-  return { memory: { name: name.trim(), pronouns: pronouns.trim(), personality: personality.trim(), notes: notes.map(n => n.trim()).filter(Boolean) } };
+  const { words = [], diary = [] } = memory;
+  const validWord = w => w && typeof w === 'object' && isShortString(w.word, GROWTH_LIMITS.wordChars) &&
+    (w.meaning === undefined || isShortString(w.meaning, GROWTH_LIMITS.meaningChars));
+  if (!Array.isArray(words) || words.length > GROWTH_LIMITS.words || !words.every(validWord)) {
+    return { error: `Memory words must be at most ${GROWTH_LIMITS.words} short words` };
+  }
+  if (!Array.isArray(diary) || diary.length > GROWTH_LIMITS.diaryInChat || !diary.every(l => isShortString(l, GROWTH_LIMITS.diaryChars))) {
+    return { error: `Memory diary must be at most ${GROWTH_LIMITS.diaryInChat} lines of ${GROWTH_LIMITS.diaryChars} characters` };
+  }
+  return {
+    memory: {
+      name: name.trim(), pronouns: pronouns.trim(), personality: personality.trim(),
+      notes: notes.map(n => n.trim()).filter(Boolean),
+      words: words.map(w => ({ word: w.word.trim(), ...(w.meaning?.trim() ? { meaning: w.meaning.trim() } : {}) })).filter(w => w.word),
+      diary: diary.map(l => l.trim()).filter(Boolean)
+    }
+  };
+}
+
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const isRealDate = day => DATE_PATTERN.test(day) && !Number.isNaN(Date.parse(`${day}T00:00:00Z`)) &&
+  new Date(`${day}T00:00:00Z`).toISOString().slice(0, 10) === day;
+const addDaysUtc = (day, days) => new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+// Clamp the "growing" part of a memory update: new follow-ups, words and a diary line
+export function sanitizeGrowth(raw, today) {
+  const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const latest = addDaysUtc(today, FOLLOW_UP_MAX_DAYS);
+  const followUps = (Array.isArray(raw?.followUps) ? raw.followUps : [])
+    .map(f => ({ about: text(f?.about, GROWTH_LIMITS.followUpChars), askAfter: typeof f?.askAfter === 'string' ? f.askAfter : '' }))
+    .filter(f => f.about && isRealDate(f.askAfter) && f.askAfter >= today && f.askAfter <= latest)
+    .slice(0, NEW_PER_REFLECTION);
+  const words = (Array.isArray(raw?.words) ? raw.words : [])
+    .map(w => ({ word: text(w?.word, GROWTH_LIMITS.wordChars), meaning: text(w?.meaning, GROWTH_LIMITS.meaningChars) }))
+    .filter(w => w.word)
+    .map(w => (w.meaning ? w : { word: w.word }))
+    .slice(0, NEW_PER_REFLECTION);
+  return { followUps, words, diary: text(raw?.diary, GROWTH_LIMITS.diaryChars) };
 }
 
 // Greeting requests only carry numbers; clamp them to sensible ranges
@@ -375,14 +426,130 @@ const GREETING_MAX_TOKENS = 150;
 
 // Validate a chat request and build what to send to Claude.
 // Sends an error response and returns null if the request is invalid.
-const CHAT_MODES = ['detective', 'football'];
+const CHAT_MODES = ['detective', 'football', 'kitchen', 'teach'];
+export const QUIZ_LIMITS = { topic: 60, minQuestions: 3, maxQuestions: 8, field: 200, answer: 500, question: 300 };
+export const VERDICTS = ['right', 'partly', 'notYet'];
+export const FASHION_LIMITS = { award: 40, comment: 220, tip: 120, finaleLine: 200, minLooks: 2, maxLooks: 6 };
+const HEX_COLOUR = /^#[0-9a-fA-F]{6}$/;
+
+// Clean up BMO's judging of a look. Always returns something usable.
+// Fashion lines are said as-is, so *emotes* are removed rather than read out
+const withoutEmotes = v => (typeof v === 'string' ? v.replace(/\*[^*]*\*/g, '').replace(/\s{2,}/g, ' ') : v);
+
+export function sanitizeFashion(raw, style) {
+  const L = FASHION_LIMITS;
+  const text = (v, max) => (typeof v === 'string' ? withoutEmotes(v).trim().slice(0, max) : '');
+  const result = {
+    award: text(raw?.award, L.award) || 'Most Fabulous',
+    comment: text(raw?.comment, L.comment) || "BMO's judging circuits are dazzled!",
+    accessory: FASHION_ACCESSORIES.includes(raw?.accessory) ? raw.accessory : 'bow',
+    colour: typeof raw?.colour === 'string' && HEX_COLOUR.test(raw.colour.trim()) ? raw.colour.trim().toLowerCase() : ''
+  };
+  const tip = style === 'check' ? text(raw?.tip, L.tip) : '';
+  return tip ? { ...result, tip } : result;
+}
+
+// Clean up the finale. Returns { winner, line } with the winner always in range.
+export function sanitizeFinale(raw, count) {
+  const winner = Number.isInteger(raw?.winner) && raw.winner >= 0 && raw.winner < count ? raw.winner : 0;
+  const cleaned = typeof raw?.line === 'string' ? withoutEmotes(raw.line).trim() : '';
+  const line = cleaned ? cleaned.slice(0, FASHION_LIMITS.finaleLine) : '';
+  return { winner, line };
+}
+
+// Clean up a quiz from the model. Returns { quiz } or { unreadable: true }.
+export function sanitizeQuiz(raw) {
+  const L = QUIZ_LIMITS;
+  if (!raw || typeof raw !== 'object' || raw.unreadable) return { unreadable: true };
+  const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const questions = (Array.isArray(raw.questions) ? raw.questions : [])
+    .map(item => ({ q: text(item?.q, L.field), answer: text(item?.answer, L.field), why: text(item?.why, L.field) }))
+    .filter(item => item.q && item.answer)
+    .slice(0, L.maxQuestions);
+  if (questions.length < L.minQuestions) return { unreadable: true };
+  return { quiz: { topic: text(raw.topic, L.topic) || 'My notes', questions } };
+}
+
+// Clean up a judged answer. Returns { verdict, reply } or null if the model's answer was unusable.
+export function sanitizeVerdict(raw) {
+  if (!raw || !VERDICTS.includes(raw.verdict)) return null;
+  const reply = typeof raw.reply === 'string' ? raw.reply.trim().slice(0, 300) : '';
+  return reply ? { verdict: raw.verdict, reply } : null;
+}
+export const RECIPE_LIMITS = { title: 80, servings: 40, ingredients: 25, ingredientChars: 80, steps: 20, stepChars: 240, maxMinutes: 1440, request: 300 };
+
+// The recipe and step sent with kitchen-mode chats. Returns { kitchen } (null if absent) or { error }.
+function validateKitchen(kitchen) {
+  if (kitchen === undefined || kitchen === null) return { kitchen: null };
+  const L = RECIPE_LIMITS;
+  const ok = kitchen && typeof kitchen === 'object' &&
+    isShortString(kitchen.title, L.title) && isShortString(kitchen.step, L.stepChars) &&
+    Number.isInteger(kitchen.stepNumber) && Number.isInteger(kitchen.totalSteps) &&
+    kitchen.stepNumber >= 1 && kitchen.totalSteps <= L.steps && kitchen.stepNumber <= kitchen.totalSteps &&
+    Array.isArray(kitchen.ingredients) && kitchen.ingredients.length <= L.ingredients &&
+    kitchen.ingredients.every(i => isShortString(i, L.ingredientChars));
+  if (!ok) return { error: 'Kitchen context must be a short recipe title, step and ingredients' };
+  const { title, step, stepNumber, totalSteps, ingredients } = kitchen;
+  return { kitchen: { title, step, stepNumber, totalSteps, ingredients } };
+}
+
+// Clean up a recipe from the model. Returns { recipe } or { unreadable: true }.
+export function sanitizeRecipe(raw, fromPhoto) {
+  const L = RECIPE_LIMITS;
+  if (!raw || typeof raw !== 'object' || raw.unreadable) return { unreadable: true };
+  const text = (v, max) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
+  const list = (v, count, max) => (Array.isArray(v) ? v : []).map(x => text(x, max)).filter(Boolean).slice(0, count);
+  const title = text(raw.title, L.title);
+  const steps = list(raw.steps, L.steps, L.stepChars);
+  if (!title || steps.length === 0) return { unreadable: true };
+  const minutes = Number.isFinite(raw.minutes) ? Math.round(Math.min(L.maxMinutes, Math.max(0, raw.minutes))) : 0;
+  return {
+    recipe: {
+      title,
+      servings: text(raw.servings, L.servings),
+      minutes,
+      ingredients: list(raw.ingredients, L.ingredients, L.ingredientChars),
+      steps,
+      fromPhoto: !!fromPhoto,
+      bmoVersion: !fromPhoto && raw.bmoVersion === true
+    }
+  };
+}
 
 const MAX_NOW_CHARS = 60;
 const OCCASION_KINDS = ['birthday', 'met'];
 
+// Check a photo sent for BMO to look at. Returns { image } (null if none) or { error }.
+// The photo is never logged, cached or stored.
+export function validateImage(image) {
+  if (image === undefined || image === null) return { image: null };
+  const match = typeof image === 'string' && /^data:(image\/(?:jpeg|png));base64,([A-Za-z0-9+/=]+)$/.exec(image);
+  if (!match) return { error: 'Image must be a JPEG or PNG data URL' };
+  const bytes = Math.floor(match[2].length * 3 / 4);
+  if (bytes > MAX_IMAGE_BYTES) return { error: `Image is too large (max ${Math.round(MAX_IMAGE_BYTES / 1024)} KB after shrinking)` };
+  return { image: { mediaType: match[1], data: match[2] } };
+}
+
 async function prepareChat(req, res) {
   const greeting = validateGreeting(req.body.greeting);
-  const { mode, hour, now, nudge, occasion, special: isSpecial, justRecognised } = req.body;
+  const { mode, hour, now, nudge, occasion, imageKind, caption, followUp, milestone, special: isSpecial, justRecognised } = req.body;
+  if (followUp !== undefined && followUp !== null && !isShortString(followUp, GROWTH_LIMITS.followUpChars)) {
+    res.status(400).json({ error: `followUp must be at most ${GROWTH_LIMITS.followUpChars} characters` });
+    return null;
+  }
+  if (milestone !== undefined && milestone !== null && !Object.hasOwn(MILESTONES, milestone)) {
+    res.status(400).json({ error: 'Unknown milestone' });
+    return null;
+  }
+  const { image, error: imageError } = validateImage(req.body.image);
+  if (imageError) {
+    res.status(400).json({ error: imageError });
+    return null;
+  }
+  if (image && (!IMAGE_KINDS.includes(imageKind) || (caption !== undefined && !(typeof caption === 'string' && caption.length <= MAX_CAPTION_CHARS)))) {
+    res.status(400).json({ error: `A photo needs imageKind (${IMAGE_KINDS.join(' or ')}) and an optional short caption` });
+    return null;
+  }
   if (occasion !== undefined && occasion !== null && !OCCASION_KINDS.includes(occasion)) {
     res.status(400).json({ error: `Occasion must be one of: ${OCCASION_KINDS.join(', ')}` });
     return null;
@@ -404,12 +571,38 @@ async function prepareChat(req, res) {
     res.status(400).json({ error: memoryError });
     return null;
   }
+  const { kitchen, error: kitchenError } = validateKitchen(req.body.kitchen);
+  if (kitchenError) {
+    res.status(400).json({ error: kitchenError });
+    return null;
+  }
 
   // Greetings are built on the server from numbers only; normal chats send messages.
   // A nudge (BMO speaking first) may include recent messages for context, plus a hidden turn.
   let messages;
   if (greeting) {
-    messages = [{ role: 'user', content: buildGreetingTurn(greeting) }];
+    messages = [{ role: 'user', content: buildGreetingTurn(greeting) + buildFollowUpLine(followUp) }];
+  } else if (image || milestone) {
+    // A photo for BMO to look at: recent messages for context (optional), then the photo turn
+    const recent = Array.isArray(req.body.messages) && req.body.messages.length ? req.body.messages : null;
+    const validationError = recent && validateMessages(recent);
+    if (validationError) {
+      res.status(400).json({ error: validationError });
+      return null;
+    }
+    messages = [
+      ...(recent || []).map(({ role, content }) => ({ role, content })),
+      image
+        ? {
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+            { type: 'text', text: buildPhotoTurn(imageKind, caption) }
+          ]
+        }
+        // A milestone to celebrate
+        : { role: 'user', content: buildMilestoneTurn(milestone) }
+    ];
   } else if (nudge === true) {
     const recent = Array.isArray(req.body.messages) && req.body.messages.length ? req.body.messages : null;
     const validationError = recent && validateMessages(recent);
@@ -417,7 +610,7 @@ async function prepareChat(req, res) {
       res.status(400).json({ error: validationError });
       return null;
     }
-    messages = [...(recent || []).map(({ role, content }) => ({ role, content })), { role: 'user', content: NUDGE_TURN }];
+    messages = [...(recent || []).map(({ role, content }) => ({ role, content })), { role: 'user', content: NUDGE_TURN + buildFollowUpLine(followUp) }];
   } else {
     const validationError = validateMessages(req.body.messages);
     if (validationError) {
@@ -439,9 +632,10 @@ async function prepareChat(req, res) {
   }
 
   const weather = await weatherForChat(req.ip);
-  const extras = buildModeBlock(mode) + buildTimeBlock(hour ?? greeting?.hour, now) + buildWeatherBlock(weather) +
+  const extras = buildModeBlock(mode) + (mode === 'kitchen' ? buildKitchenBlock(kitchen) : '') +
+    buildTimeBlock(hour ?? greeting?.hour, now) + buildWeatherBlock(weather) +
     (isSpecial === true ? buildSpecialBlock(special, justRecognised === true) + buildOccasionBlock(occasion, special) : '');
-  const fresh = !!greeting || nudge === true;  // Greetings and nudges should be different every time
+  const fresh = !!greeting || nudge === true || !!image || !!milestone;  // Greetings, nudges, photos and milestones are never cached
   return {
     greeting,
     memory,
@@ -651,6 +845,170 @@ function clampMemory(raw) {
   };
 }
 
+// Turn a recipe photo, a dish name or a fridge list into a recipe BMO can guide the friend through.
+// The photo is never logged, cached or stored.
+app.post('/api/recipe', async (req, res) => {
+  try {
+    const { image, error: imageError } = validateImage(req.body.image);
+    if (imageError) return res.status(400).json({ error: imageError });
+    const { request: ask } = req.body;
+    if (ask !== undefined && ask !== null && !isShortString(ask, RECIPE_LIMITS.request)) {
+      return res.status(400).json({ error: `Request must be at most ${RECIPE_LIMITS.request} characters` });
+    }
+    if (!image && !(typeof ask === 'string' && ask.trim())) {
+      return res.status(400).json({ error: 'Send a recipe photo or a request' });
+    }
+    if (!allowChatRequest(req.ip)) {
+      return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'API key not configured on server' });
+    }
+
+    const askText = typeof ask === 'string' && ask.trim() ? ask.trim() : '';
+    const content = image
+      ? [
+        { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+        { type: 'text', text: `A photo of a recipe.${askText ? ` The friend added: "${askText}"` : ''}` }
+      ]
+      : `The friend's request: "${askText}"`;
+    const data = await callClaude({ system: RECIPE_PROMPT, maxTokens: 1500, messages: [{ role: 'user', content }] });
+    const reply = data.content?.find(block => block.type === 'text')?.text || '';
+    const result = sanitizeRecipe(parseJsonObject(reply), !!image);
+    console.log(result.recipe ? `🍳 Recipe ready: ${result.recipe.steps.length} steps` : '🍳 Recipe unreadable');
+    res.json(result);
+  } catch (error) {
+    console.error('💥 Error in recipe endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// BMO judges an outfit: an award, a comment and a matching accessory. The photo is never logged, cached or stored.
+app.post('/api/fashion', async (req, res) => {
+  try {
+    const { image, error: imageError } = validateImage(req.body.image);
+    if (imageError) return res.status(400).json({ error: imageError });
+    if (!image) return res.status(400).json({ error: 'Send a photo of the look' });
+    const style = req.body.style === 'check' ? 'check' : req.body.style === 'runway' ? 'runway' : null;
+    if (!style) return res.status(400).json({ error: 'Style must be runway or check' });
+    if (!allowChatRequest(req.ip)) {
+      return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'API key not configured on server' });
+    }
+    const data = await callClaude({
+      system: buildFashionPrompt(style),
+      maxTokens: 400,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+          { type: 'text', text: style === 'check' ? 'How do I look?' : 'Here is my look for the show!' }
+        ]
+      }]
+    });
+    const reply = data.content?.find(block => block.type === 'text')?.text || '';
+    const result = sanitizeFashion(parseJsonObject(reply), style);
+    console.log(`👗 Look judged: ${result.award} (${result.accessory})`);
+    res.json(result);
+  } catch (error) {
+    console.error('💥 Error in fashion endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// BMO crowns the Look of the Night (award titles only; the photos are never sent again)
+app.post('/api/fashion/finale', async (req, res) => {
+  try {
+    const L = FASHION_LIMITS;
+    const { awards } = req.body;
+    if (!Array.isArray(awards) || awards.length < L.minLooks || awards.length > L.maxLooks ||
+        !awards.every(a => isShortString(a, L.award) && a.trim())) {
+      return res.status(400).json({ error: `Send ${L.minLooks} to ${L.maxLooks} award titles` });
+    }
+    if (!allowChatRequest(req.ip)) {
+      return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'API key not configured on server' });
+    }
+    const data = await callClaude({
+      system: FASHION_FINALE_PROMPT,
+      maxTokens: 200,
+      messages: [{ role: 'user', content: awards.map((a, i) => `${i}: ${a}`).join('\n') }]
+    });
+    const reply = data.content?.find(block => block.type === 'text')?.text || '';
+    res.json(sanitizeFinale(parseJsonObject(reply), awards.length));
+  } catch (error) {
+    console.error('💥 Error in fashion finale endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Make a short quiz from a photo of study notes. The photo is never logged, cached or stored.
+app.post('/api/quiz', async (req, res) => {
+  try {
+    const { image, error: imageError } = validateImage(req.body.image);
+    if (imageError) return res.status(400).json({ error: imageError });
+    if (!image) return res.status(400).json({ error: 'Send a photo of your notes' });
+    if (!allowChatRequest(req.ip)) {
+      return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'API key not configured on server' });
+    }
+    const data = await callClaude({
+      system: QUIZ_PROMPT,
+      maxTokens: 1500,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+          { type: 'text', text: 'Make a quiz from these notes.' }
+        ]
+      }]
+    });
+    const reply = data.content?.find(block => block.type === 'text')?.text || '';
+    const result = sanitizeQuiz(parseJsonObject(reply));
+    console.log(result.quiz ? `📚 Quiz ready: ${result.quiz.questions.length} questions` : '📚 Notes unreadable');
+    res.json(result);
+  } catch (error) {
+    console.error('💥 Error in quiz endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Judge a quiz answer (spoken answers can be worded any way)
+app.post('/api/quiz/check', async (req, res) => {
+  try {
+    const L = QUIZ_LIMITS;
+    const { question, expected, answer } = req.body;
+    if (!isShortString(question, L.question) || !question.trim() || !isShortString(expected, L.question) || !expected.trim() ||
+        !isShortString(answer, L.answer)) {
+      return res.status(400).json({ error: 'Send the question, the expected answer and the friend\'s answer' });
+    }
+    if (!allowChatRequest(req.ip)) {
+      return res.status(429).json({ error: 'BMO needs a little rest! Try again in a moment.' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'API key not configured on server' });
+    }
+    const data = await callClaude({
+      system: QUIZ_CHECK_PROMPT,
+      maxTokens: 300,
+      messages: [{ role: 'user', content: `Question: ${question}\nExpected answer: ${expected}\nThe friend said: "${answer}"` }]
+    });
+    const reply = data.content?.find(block => block.type === 'text')?.text || '';
+    const result = sanitizeVerdict(parseJsonObject(reply));
+    if (!result) return res.status(502).json({ error: 'BMO could not check that one' });
+    res.json(result);
+  } catch (error) {
+    console.error('💥 Error in quiz check endpoint:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Update BMO's memory of a friend from recent messages
 app.post('/api/remember', async (req, res) => {
   try {
@@ -660,6 +1018,9 @@ app.post('/api/remember', async (req, res) => {
     }
 
     const { messages } = req.body;
+    // The friend's local date (for follow-up dates); fall back to the server's
+    const today = typeof req.body.today === 'string' && isRealDate(req.body.today) ? req.body.today : new Date().toISOString().slice(0, 10);
+    const weekday = new Date(`${today}T12:00:00Z`).toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
     const validationError = validateMessages(messages, MAX_REMEMBER_MESSAGES);
     if (validationError) {
       return res.status(400).json({ error: validationError });
@@ -672,17 +1033,17 @@ app.post('/api/remember', async (req, res) => {
       return res.status(500).json({ error: 'API key not configured on server' });
     }
 
-    const current = memory || { name: '', pronouns: '', personality: '', notes: [] };
+    const current = memory || { name: '', pronouns: '', personality: '', notes: [], words: [] };
     const transcript = messages
       .map(m => `${m.role === 'user' ? 'Friend' : 'BMO'}: ${m.content}`)
       .join('\n');
 
     const data = await callClaude({
       system: REMEMBER_PROMPT,
-      maxTokens: 700,
+      maxTokens: 900,
       messages: [{
         role: 'user',
-        content: `Current memory:\n${JSON.stringify(current)}\n\nNew messages:\n${transcript}`
+        content: `Today is ${weekday} ${today}.\n\nCurrent memory:\n${JSON.stringify({ ...current, diary: undefined })}\n\nNew messages:\n${transcript}`
       }]
     });
 
@@ -694,8 +1055,9 @@ app.post('/api/remember', async (req, res) => {
     }
 
     const updated = clampMemory(parsed);
-    console.log(`🧠 Memory updated (${updated.notes.length} notes${updated.name ? `, name: ${updated.name}` : ''})`);
-    res.json({ memory: updated });
+    const growth = sanitizeGrowth(parsed, today);
+    console.log(`🧠 Memory updated (${updated.notes.length} notes, +${growth.followUps.length} follow-ups, +${growth.words.length} words${growth.diary ? ', diary' : ''})`);
+    res.json({ memory: updated, growth });
   } catch (error) {
     console.error('💥 Error in remember endpoint:', error);
     res.status(500).json({ error: 'Internal server error' });

@@ -312,3 +312,72 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .bmo-float-deco { animation: none; top: auto; bottom: 8%; }
 }
+
+/* --- BMO is camera --- */
+.bmo-countdown {
+  animation: bmo-count-pop 0.8s ease-out both;
+}
+@keyframes bmo-count-pop {
+  0% { transform: scale(1.6); opacity: 0; }
+  20% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.4; }
+}
+.bmo-camera-flash {
+  animation: bmo-camera-flash 0.35s ease-out forwards;
+}
+@keyframes bmo-camera-flash {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* A photo shown on BMO's screen, like a little polaroid */
+.bmo-screen-photo {
+  animation: bmo-photo-in 0.4s ease-out both;
+}
+@keyframes bmo-photo-in {
+  from { transform: scale(0.8) rotate(-4deg); opacity: 0; }
+  to { transform: scale(1) rotate(-2deg); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bmo-countdown, .bmo-camera-flash, .bmo-screen-photo { animation: none; }
+}
+
+/* --- Fashion show --- */
+/* An accessory being put on: a little pop */
+.bmo-accessory-on {
+  animation: bmo-accessory-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+@keyframes bmo-accessory-pop {
+  from { opacity: 0; transform: translateX(-50%) scale(0.3); }
+  to { opacity: 1; transform: translateX(-50%) scale(1); }
+}
+/* SVG groups and full-width pieces pop without the centring shift */
+g.bmo-accessory-on, .bmo-cape.bmo-accessory-on, svg[preserveAspectRatio="none"].bmo-accessory-on {
+  animation-name: bmo-accessory-fade;
+}
+@keyframes bmo-accessory-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* The cape flutters when BMO dances */
+.bmo-dance .bmo-cape, .bmo-pose-dance .bmo-cape {
+  animation: bmo-cape-flutter 0.4s ease-in-out infinite alternate;
+  transform-origin: top center;
+}
+@keyframes bmo-cape-flutter {
+  from { transform: skewX(-4deg); }
+  to { transform: skewX(4deg); }
+}
+/* Stage lights on BMO's screen during the show */
+.bmo-stage {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 240, 150, 0.55), transparent 45%),
+    radial-gradient(circle at 80% 0%, rgba(255, 170, 220, 0.5), transparent 45%);
+  animation: bmo-stage-sweep 3s ease-in-out infinite alternate;
+}
+@keyframes bmo-stage-sweep {
+  from { background-position: -20px 0, 20px 0; }
+  to { background-position: 20px 0, -20px 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bmo-accessory-on, .bmo-cape, .bmo-stage { animation: none; }
+}
