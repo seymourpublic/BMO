@@ -3,6 +3,7 @@ import { persistentCache } from './persistentCache';
 import { Growth, MemoryPayload } from './memory';
 import { Recipe } from './recipeBook';
 import { QuizQuestion } from './studyCards';
+import { CrisisState } from './crisis';
 
 const API_BASE_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
 
@@ -108,6 +109,7 @@ export interface ChatContext {
   occasion?: Occasion['kind'];  // A special day for the special friend
   special?: boolean;        // Talking with the special friend BMO was made for
   kitchen?: KitchenContext; // Kitchen mode: what they're cooking
+  crisis?: CrisisState;     // How the friend has been feeling this visit (the server updates it)
   justRecognised?: boolean; // The special friend has just introduced themselves
 }
 
@@ -127,12 +129,13 @@ interface StreamOptions {
   greeting?: { hoursAway: number; hour: number; visits: number };
   memory: MemoryPayload | null;
   onText: (delta: string) => void;  // Called with each new piece of the reply
+  onCrisis?: (state: CrisisState) => void;  // The server noticed how the friend is feeling (before the reply)
   signal?: AbortSignal;             // Cancels the request (e.g. the friend interrupted)
 }
 
 // Stream BMO's reply as it's written. Resolves with the full reply text.
 // If the connection drops after some text arrived, resolves with what arrived.
-export const streamChat = async ({ history, greeting, nudge, followUp, milestone, photo, memory, onText, signal, context = {} }: StreamOptions): Promise<string> => {
+export const streamChat = async ({ history, greeting, nudge, followUp, milestone, photo, memory, onText, onCrisis, signal, context = {} }: StreamOptions): Promise<string> => {
   // Normal chats can come from the device cache (greetings, nudges, photos and first meetings are always fresh)
   const cacheInput = history && !nudge && !photo && !milestone && !context.justRecognised ? { history, memory, context } : null;
   if (cacheInput) {
@@ -158,6 +161,7 @@ export const streamChat = async ({ history, greeting, nudge, followUp, milestone
   let buffer = '';
   let text = '';
   let stopReason: string | undefined;
+  let crisisLevel = 0;
 
   try {
     for (;;) {
@@ -175,6 +179,9 @@ export const streamChat = async ({ history, greeting, nudge, followUp, milestone
         if (event.type === 'text') {
           text += event.text;
           onText(event.text);
+        } else if (event.type === 'crisis') {
+          crisisLevel = event.level;
+          onCrisis?.({ level: event.level, kind: event.kind, calmStreak: event.calmStreak, floor: event.floor });
         } else if (event.type === 'done') {
           stopReason = event.stop_reason;
         } else if (event.type === 'error') {
@@ -191,7 +198,8 @@ export const streamChat = async ({ history, greeting, nudge, followUp, milestone
 
   if (!text) throw new Error(CONFUSED);
   const reply = stopReason === 'max_tokens' ? trimToSentence(text) : text;
-  if (cacheInput && stopReason === 'end_turn') {
+  // Heavy moments are never kept in the reply cache
+  if (cacheInput && stopReason === 'end_turn' && crisisLevel < 1) {
     await persistentCache.set(cacheInput, reply, 1800000);
   }
   return reply;

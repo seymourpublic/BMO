@@ -11,6 +11,10 @@ import {
   FASHION_ACCESSORIES, buildFashionPrompt, FASHION_FINALE_PROMPT
 } from './personality.js';
 import { lookupWeather, weatherForChat } from './weather.js';
+import {
+  CRISIS_CHECK_PROMPT, buildAlertMessage, buildCrisisBlock, createOwnerNotifier, nextCrisisState, sanitizeCrisisCheck,
+  screenForCrisis, shouldAlert
+} from './crisis.js';
 
 
 // Load environment variables
@@ -424,6 +428,58 @@ async function callClaude({ system, messages, maxTokens }) {
 const REPLY_MAX_TOKENS = 300;     // Short replies are faster to write and to speak
 const GREETING_MAX_TOKENS = 150;
 
+// --- Crisis mode ---
+// The alert channel is added later (special.alert); until then alerts are only noted in the log
+const notifyOwner = createOwnerNotifier({ send: null });
+
+// Notice how the friend is feeling, update the crisis state, and alert the owner if they may be in danger.
+// Returns { state, alerted } for the reply. A failed check never raises an alert.
+async function assessCrisis(clientState, messages, latestUser, isSpecialFriend) {
+  const current = nextCrisisState(clientState, null);  // Cleaned up
+  const flagged = screenForCrisis(latestUser);
+  if (!flagged && current.level < 2) {
+    // Nothing worrying, and nothing heavy going on: a calm turn.
+    // Safety net for the special friend: no phrase list catches every way of saying it, so a careful
+    // check still runs in the background (without slowing the reply) and can raise the alert.
+    if (isSpecialFriend) {
+      carefulCrisisCheck(messages).then(check => alertIfInDanger(check, true)).catch(() => {});
+    }
+    return { state: nextCrisisState(current, { level: 0, kind: 'none', confidence: 1, harmSource: '' }), alerted: false };
+  }
+  const check = await carefulCrisisCheck(messages);
+  // Couldn't check a worrying message: be gentle (at least "hurting"), but never alert on a guess
+  if (!check) {
+    const state = flagged ? { ...current, level: Math.max(current.level, 3), calmStreak: 0 } : current;
+    return { state, alerted: false };
+  }
+  const state = nextCrisisState(current, check);
+  if (state.level >= 3) console.log(`💛 Crisis level ${state.level} (${state.kind})`);  // Never the friend's words
+  const alerted = await alertIfInDanger(check, isSpecialFriend);
+  return { state, alerted };
+}
+
+// The careful check: a small AI call on the last few messages. Null if it couldn't be done.
+async function carefulCrisisCheck(messages) {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  try {
+    const recent = messages.filter(m => typeof m.content === 'string').slice(-6)
+      .map(m => `${m.role === 'user' ? 'Person' : 'BMO'}: ${m.content}`).join('\n');
+    const data = await callClaude({ system: CRISIS_CHECK_PROMPT, maxTokens: 150, messages: [{ role: 'user', content: recent }] });
+    return sanitizeCrisisCheck(parseJsonObject(data.content?.find(block => block.type === 'text')?.text || ''));
+  } catch (error) {
+    console.error('⚠️ Crisis check failed:', error instanceof Error ? error.message : error);
+    return null;
+  }
+}
+
+// Alert the owner if the special friend may be in danger. Returns true if the owner knows.
+async function alertIfInDanger(check, isSpecialFriend) {
+  if (!isSpecialFriend || !shouldAlert(check, special.alert?.ownerNames || [])) return false;
+  console.log(`💛 Crisis level ${check.level} (${check.kind})`);  // Never the friend's words
+  const result = await notifyOwner(buildAlertMessage(special.friendName, check.kind));
+  return result.alerted;
+}
+
 // Validate a chat request and build what to send to Claude.
 // Sends an error response and returns null if the request is invalid.
 const CHAT_MODES = ['detective', 'football', 'kitchen', 'teach'];
@@ -631,17 +687,27 @@ async function prepareChat(req, res) {
     return null;
   }
 
+  // Crisis mode: how is the friend feeling? (Normal chats only; decided here on the server)
+  const latestUser = !greeting && !image && !milestone && nudge !== true
+    ? [...messages].reverse().find(m => m.role === 'user' && typeof m.content === 'string')?.content
+    : undefined;
+  const crisis = latestUser ? await assessCrisis(req.body.crisis, messages, latestUser, isSpecial === true) : null;
+
   const weather = await weatherForChat(req.ip);
   const extras = buildModeBlock(mode) + (mode === 'kitchen' ? buildKitchenBlock(kitchen) : '') +
     buildTimeBlock(hour ?? greeting?.hour, now) + buildWeatherBlock(weather) +
     (isSpecial === true ? buildSpecialBlock(special, justRecognised === true) + buildOccasionBlock(occasion, special) : '');
-  const fresh = !!greeting || nudge === true || !!image || !!milestone;  // Greetings, nudges, photos and milestones are never cached
+  // Greetings, nudges, photos, milestones and anything heavy are never cached
+  const fresh = !!greeting || nudge === true || !!image || !!milestone || (crisis?.state.level ?? 0) >= 1;
   return {
     greeting,
     memory,
     messages,
+    crisis: crisis?.state ?? null,
     // Football takes over BMO's identity, so its instructions also go first where they carry the most weight
-    system: (mode === 'football' ? `${buildModeBlock(mode).trim()}\n\n` : '') + BMO_PERSONALITY + buildMemoryBlock(memory) + extras,
+    // Crisis guidance goes last, where it carries the most weight (it outranks any mode)
+    system: (mode === 'football' ? `${buildModeBlock(mode).trim()}\n\n` : '') + BMO_PERSONALITY + buildMemoryBlock(memory) + extras +
+      (crisis ? buildCrisisBlock(crisis.state, { alertSent: crisis.alerted }) : ''),
     cacheKey: fresh ? null : generateCacheKey(messages, JSON.stringify({ memory, extras })),
     maxTokens: fresh ? GREETING_MAX_TOKENS : REPLY_MAX_TOKENS
   };
@@ -676,6 +742,8 @@ app.post('/api/chat/stream', async (req, res) => {
     'X-Accel-Buffering': 'no'  // Don't let proxies hold the stream back
   });
   const sendEvent = event => res.write(`data: ${JSON.stringify(event)}\n\n`);
+  // The app learns the new crisis state before the reply starts
+  if (chat.crisis) sendEvent({ type: 'crisis', ...chat.crisis });
 
   const cached = getCachedReply(chat.cacheKey);
   if (cached) {

@@ -381,3 +381,15 @@ g.bmo-accessory-on, .bmo-cape.bmo-accessory-on, svg[preserveAspectRatio="none"].
 @media (prefers-reduced-motion: reduce) {
   .bmo-accessory-on, .bmo-cape, .bmo-stage { animation: none; }
 }
+
+/* --- Crisis mode: breathing with BMO (in for 4 s, out for 4 s) --- */
+.bmo-breathe {
+  animation: bmo-breathe 8s ease-in-out infinite;
+}
+@keyframes bmo-breathe {
+  0%, 100% { transform: scale(0.9); }
+  50% { transform: scale(1.12); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bmo-breathe { animation-duration: 8s; animation-timing-function: linear; }
+}

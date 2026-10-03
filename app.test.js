@@ -433,3 +433,12 @@ describe('fashion show', () => {
     expect(prompt).not.toMatch(/"tip"/);
   });
 });
+
+describe('crisis mode in chats', () => {
+  const post = body => request(app).post('/api/chat').set('X-Forwarded-For', '10.0.0.11').send(body);
+
+  it('accepts the crisis state the app sends (and cleans it up on the server)', async () => {
+    expect((await post({ messages: hi, crisis: { level: 4, kind: 'panic', calmStreak: 1, floor: 4 } })).status).toBe(500);  // Valid; only the key is missing
+    expect((await post({ messages: hi, crisis: { level: 'very bad' } })).status).toBe(500);  // Odd values are cleaned, never trusted
+  });
+});

@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Message, Mood } from '../types';
 import { ChatContext, PhotoForBmo, fetchSong, recogniseFriend, streamChat } from '../utils/api';
+import { CrisisState, PRIVATE_FROM, SUPPORTIVE_FROM } from '../utils/crisis';
 import { createSentenceSplitter, captionText } from '../utils/sentenceSplitter';
 import { emoteToMood } from '../utils/emotes';
 import { soundEffects } from '../utils/sounds';
@@ -29,6 +30,7 @@ interface Options {
   // A phrase easter egg was said. Return true if the app handled it fully (don't chat).
   onEasterEgg: (egg: PhraseEgg) => boolean;
   onRecognised: (name: string, pronouns: string) => void;
+  onCrisis?: (state: CrisisState) => void;  // The server noticed how the friend is feeling
 }
 
 // The special friend's own songs (the original one has its own trigger phrases)
@@ -62,7 +64,7 @@ const recentForApi = (history: Message[]): Message[] => {
 
 export const useBMOConversation = ({
   speak, startQueue, enqueue, endQueue, stopSpeaking, voiceEnabled, memory, initialHistory, onMessages,
-  isSpecial, getContext, onEasterEgg, onRecognised
+  isSpecial, getContext, onEasterEgg, onRecognised, onCrisis
 }: Options) => {
   const [mood, setMood] = useState<Mood>('happy');
   const [caption, setCaption] = useState('');
@@ -86,6 +88,10 @@ export const useBMOConversation = ({
   onEasterEggRef.current = onEasterEgg;
   const onRecognisedRef = useRef(onRecognised);
   onRecognisedRef.current = onRecognised;
+  const onCrisisRef = useRef(onCrisis);
+  onCrisisRef.current = onCrisis;
+  // How heavy the latest turn was (messages from hard moments are kept private)
+  const crisisLevelRef = useRef(0);
   // Did BMO's last reply ask for the friend's name? (Then a one-word answer is their name.)
   const askedNameRef = useRef(false);
 
@@ -147,6 +153,10 @@ export const useBMOConversation = ({
     try {
       const reply = await streamChat({
         ...request,
+        onCrisis: state => {
+          crisisLevelRef.current = state.level;
+          onCrisisRef.current?.(state);
+        },
         memory: memoryRef.current,
         signal: controller.signal,
         onText: delta => {
@@ -235,11 +245,14 @@ export const useBMOConversation = ({
       await showError(error);
       return;
     }
-    const replyEntry: HistoryMessage = { role: 'assistant', text: reply };
+    // Hard moments stay private: kept in the chat, never used for memory or the diary
+    const sensitive = crisisLevelRef.current >= PRIVATE_FROM || undefined;
+    const replyEntry: HistoryMessage = { role: 'assistant', text: reply, sensitive };
+    const savedUserEntry: HistoryMessage = sensitive ? { ...userEntry, sensitive } : userEntry;
     // The failed-turn case never reaches here, so history stays consistent
     historyRef.current = [...newHistory, { role: 'assistant', content: reply }];
     setDisplayMessages(prev => [...prev, replyEntry]);
-    onMessagesRef.current([userEntry, replyEntry]);
+    onMessagesRef.current([savedUserEntry, replyEntry]);
     await finishSpeaking();
   }, [streamReply, finishSpeaking, showError]);
 
@@ -272,11 +285,13 @@ export const useBMOConversation = ({
 
     // Easter eggs first: some replace the chat, others (like modes) change it
     const egg = plain ? null : detectPhrase(text);
-    if (egg === 'originalSong') {
+    // In a hard moment, no big songs (the app hums softly if asked)
+    const supportive = (getContextRef.current().crisis?.level ?? 0) >= SUPPORTIVE_FROM;
+    if (egg === 'originalSong' && !supportive) {
       await singSong('original');
       return;
     }
-    if (egg === 'sing' && isSpecialRef.current) {
+    if (egg === 'sing' && isSpecialRef.current && !supportive) {
       await singForFriend();
       return;
     }

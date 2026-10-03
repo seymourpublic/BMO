@@ -117,6 +117,14 @@ const Eyes: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean; c: str
     );
   }
   switch (mood) {
+    case 'calm':
+      // Soft, relaxed eyes with a slow blink: steady, not sad
+      return (
+        <g className="bmo-blink">
+          <ellipse cx="32" cy="23" rx="5" ry="5.5" fill={c} />
+          <ellipse cx="88" cy="23" rx="5" ry="5.5" fill={c} />
+        </g>
+      );
     case 'excited':
       return (
         <>
@@ -240,6 +248,8 @@ const RestingMouth: React.FC<{ mood: Mood; asleep?: boolean; listening?: boolean
   if (asleep) return <path d="M54 48 L66 48" stroke={c} strokeWidth="3.5" strokeLinecap="round" />;
   if (listening) return <path d="M50 46 Q60 52 70 46" stroke={c} strokeWidth="4" fill="none" strokeLinecap="round" />;
   switch (mood) {
+    case 'calm':
+      return <path d="M50 47 Q60 52 70 47" stroke={c} strokeWidth="3.5" fill="none" strokeLinecap="round" />;
     case 'excited':
       return <path d="M40 38 Q60 70 80 38 Z" fill={c} stroke={c} strokeWidth="2" strokeLinejoin="round" />;
     case 'surprised':

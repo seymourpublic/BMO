@@ -13,6 +13,7 @@ export interface HistoryMessage {
   role: 'user' | 'assistant';
   text: string;
   kind?: 'story';  // Shown differently in past messages
+  sensitive?: boolean;  // Said during a hard moment: never sent for memory, notes or the diary
 }
 
 // Something from the friend's life to ask about later ("Did the dumplings work?")

@@ -18,6 +18,11 @@ import { FashionScreen } from './components/FashionScreen';
 import { WardrobePanel } from './components/WardrobePanel';
 import { useFashionCompanion } from './hooks/useFashionCompanion';
 import { Outfit, loadOutfit, safeColour, saveOutfit, wornOutfit } from './utils/fashion';
+import {
+  CrisisState, NO_CRISIS, QUIET_FROM, SUPPORTIVE_FROM, asksToCheckIn, calmWake, clearCrisis, loadCrisis, saveCrisis, saysYes,
+  softenMood, wantsBreathing
+} from './utils/crisis';
+import { addDays, localDate } from './utils/memory';
 import { REVIEW_OFFER_MIN, useStudyCompanion } from './hooks/useStudyCompanion';
 import { useKitchen } from './hooks/useKitchen';
 import { useKitchenCompanion } from './hooks/useKitchenCompanion';
@@ -132,6 +137,10 @@ const App: React.FC = () => {
   const [albumVersion, setAlbumVersion] = useState(0);
   const [shopping, setShopping] = useState(loadShoppingList);
   const [chosenOutfit, setChosenOutfit] = useState<Outfit | null>(loadOutfit);  // What the friend dressed BMO in
+  // Crisis mode: how the friend has been feeling this visit (the server decides; see crisis.js)
+  const [crisis, setCrisisState] = useState<CrisisState>(loadCrisis);
+  const crisisRef = useRef(crisis);
+  const [breathing, setBreathing] = useState<'in' | 'out' | null>(null);  // Breathing with BMO
 
   const theme = COLOR_THEMES[themeName];
   const captionRef = useRef<HTMLDivElement>(null);
@@ -180,12 +189,14 @@ const App: React.FC = () => {
 
   // Easter-egg phrases the app handles (set in effect below, after the conversation hook exists)
   const onEasterEggRef = useRef<(egg: PhraseEgg) => boolean>(() => false);
+  const onCrisisRef = useRef<(state: CrisisState) => void>(() => {});
   const kitchen = useKitchen();
   const getContext = useCallback((): ChatContext => {
     const current = modeRef.current;
     return {
       mode: current === 'detective' || current === 'football' || current === 'kitchen' || current === 'teach' ? current : undefined,
       kitchen: current === 'kitchen' ? kitchen.getContext() : undefined,
+      crisis: crisisRef.current.level > 0 || crisisRef.current.floor > 0 ? crisisRef.current : undefined,
       hour: new Date().getHours(),
       occasion: occasionRef.current?.kind
     };
@@ -199,7 +210,8 @@ const App: React.FC = () => {
     isSpecial: memory.special,
     getContext,
     onEasterEgg: egg => onEasterEggRef.current(egg),
-    onRecognised: markSpecial
+    onRecognised: markSpecial,
+    onCrisis: state => onCrisisRef.current(state)
   });
 
   const rpsGames = memory.stats.rps.friend + memory.stats.rps.bmo + memory.stats.rps.ties;
@@ -402,6 +414,72 @@ const App: React.FC = () => {
     }
   });
 
+  // --- Crisis mode ---
+  const stillHereSaidRef = useRef(false);  // "BMO is still right here" said for this quiet stretch
+  const breathTimerRef = useRef(0);
+
+  const setCrisis = useCallback((next: CrisisState) => {
+    crisisRef.current = next;
+    setCrisisState(next);
+    saveCrisis(next);
+  }, []);
+
+  // The server noticed how the friend is feeling (before BMO's reply)
+  onCrisisRef.current = (next: CrisisState) => {
+    const was = crisisRef.current.level;
+    setCrisis(next);
+    if (next.level >= SUPPORTIVE_FROM && was < SUPPORTIVE_FROM) {
+      // Supportive mode: put play away quietly (BMO's reply is already on its way)
+      if (game.active) game.quit();
+      setCameraOn(false);
+      setHiddenButton(false);
+      const current = modeRef.current;
+      if (STUDY_MODES.includes(current)) study.leave(false);
+      else if (current === 'fashion') fashion.leave(false);
+      else if (current !== 'none') setMode('none');  // The kitchen keeps its place for later
+    }
+  };
+
+  // Breathing with BMO: its face slowly grows (in) and shrinks (out), six times
+  const stopBreathing = useCallback(() => {
+    clearTimeout(breathTimerRef.current);
+    setBreathing(null);
+  }, []);
+  const startBreathing = useCallback(() => {
+    interrupt();
+    clearTimeout(breathTimerRef.current);
+    const BREATH_MS = 4000;
+    const CYCLES = 6;
+    let step = 0;
+    const tick = () => {
+      if (step >= CYCLES * 2) {
+        setBreathing(null);
+        quickLine('Well done. BMO is right here with you.', 'calm', true);
+        return;
+      }
+      const phase = step % 2 === 0 ? 'in' : 'out';
+      setBreathing(phase);
+      setCaption(phase === 'in' ? 'Breathe in…' : '…and out.');
+      step++;
+      breathTimerRef.current = window.setTimeout(tick, BREATH_MS);
+    };
+    quickLine("Okay. Let's breathe together. Follow BMO's face.", 'calm', true).then(tick);
+  }, [interrupt, quickLine, setCaption]);
+
+  // Words that crisis mode handles first. Returns true if nothing else should happen.
+  const crisisWords = useCallback((text: string): boolean => {
+    if (wantsBreathing(text)) {
+      startBreathing();
+      return true;
+    }
+    // A yes to "Can BMO check on you tomorrow?" (BMO's last words) becomes a gentle follow-up
+    const lastBmo = [...displayMessages].reverse().find(m => m.role === 'assistant')?.text ?? '';
+    if (asksToCheckIn(lastBmo) && saysYes(text)) {
+      addFollowUp({ about: 'Friend had a hard time and said BMO could check on them. Ask gently how they are feeling today', askAfter: addDays(localDate(), 1) });
+    }
+    return false;
+  }, [startBreathing, displayMessages, addFollowUp]);
+
   // --- Easter eggs ---
   const flashScreen = useCallback((kind: FlashKind) => setFlash({ kind, id: Date.now() }), []);
 
@@ -432,6 +510,14 @@ const App: React.FC = () => {
   // Phrases the app handles. Return true if the chat shouldn't also happen.
   onEasterEggRef.current = (egg: PhraseEgg) => {
     switch (egg) {
+      case 'sing':
+        // In a hard moment, only a very soft hum, and only because she asked
+        if (crisisRef.current.level >= SUPPORTIVE_FROM) {
+          setCaption('♪ Hmm hmm hmmm… hmm hmm… ♪');
+          sing('Hmm hmm hmmm… hmm hmm…', noMelody);
+          return true;
+        }
+        return false;
       case 'clickIt':
         danceTo('CLICK IT CLICK IT! Click it, click it, click it!');
         return true;
@@ -551,6 +637,12 @@ const App: React.FC = () => {
   const tryNudgeRef = useRef<() => boolean>(() => false);
 
   const onIdleAction = useCallback((action: IdleAction) => {
+    // A heavy moment: no songs, whispers or surprises, just a soft blink now and then
+    if (crisisRef.current.level >= QUIET_FROM) {
+      setEyesClosed(true);
+      window.setTimeout(() => setEyesClosed(false), 600);
+      return;
+    }
     if (tryNudgeRef.current()) return;  // Sometimes BMO starts a conversation instead
     if (hasMemoriesRef.current && Math.random() < IDLE_MEMORY_CHANCE) {
       lookBackAtMemory();
@@ -580,6 +672,7 @@ const App: React.FC = () => {
   }, [glance, setCaption, sing, setMood, lookBackAtMemory]);
 
   const onDoze = useCallback(() => {
+    if (crisisRef.current.level >= SUPPORTIVE_FROM) return;  // BMO never falls asleep on a friend who needs it
     setDozing(true);
     setCaption('');
   }, [setCaption]);
@@ -588,6 +681,7 @@ const App: React.FC = () => {
 
   // BMO speaks first: only after a long quiet, not too often, and never nagging
   tryNudgeRef.current = () => {
+    if (crisisRef.current.level >= QUIET_FROM) return false;
     const now = Date.now();
     if (!canNudge({
       quietForMs: idle.quietForMs(),
@@ -677,9 +771,11 @@ const App: React.FC = () => {
     const visit = recordVisit();
     const now = new Date();
     let specialMoment = false;  // Something already happened this wake (keep it calm)
+    // The day after a dangerous moment (or still in a heavy one): no alarms, jokes, songs, dreams or parties
+    const calm = calmWake() || crisisRef.current.level >= QUIET_FROM;
 
     // Stranger alarm: sometimes BMO doesn't recognise you after a long time away
-    if (visit.visits > 1 && visit.hoursAway >= STRANGER_MIN_HOURS && Math.random() < STRANGER_CHANCE) {
+    if (!calm && visit.visits > 1 && visit.hoursAway >= STRANGER_MIN_HOURS && Math.random() < STRANGER_CHANCE) {
       flashScreen('alarm');
       await quickLine('STRANGER! STRANGER!', 'surprised', true);
       await quickLine("...oh. Excuse me. It's you!", 'happy', true);
@@ -687,7 +783,7 @@ const App: React.FC = () => {
     }
 
     // After midnight, once a night: Finn's bath-time alarm
-    if (now.getHours() < 5 && memory.lastBathJoke !== todayString()) {
+    if (!calm && now.getHours() < 5 && memory.lastBathJoke !== todayString()) {
       markBathJoke(todayString());
       await quickLine("Beep beep! It's Finn's bath time! ...Oh. Wrong alarm.", 'excited', true);
     }
@@ -707,14 +803,15 @@ const App: React.FC = () => {
       markOccasionSeen(today.id, now.getFullYear());
       soundEffects.playEmote('excited');
       await quickLine(today.message, today.kind === 'birthday' ? 'starry' : 'love', true);
-      if (today.kind === 'birthday') await singForFriend();
+      if (today.kind === 'birthday' && !calm) await singForFriend();
       specialMoment = true;
-    } else if (greeted && memory.special && Math.random() < GREETING_SONG_CHANCE) {
+    } else if (!calm && greeted && memory.special && Math.random() < GREETING_SONG_CHANCE) {
       await singForFriend();
       specialMoment = true;
     }
 
     // Still cooking from last time? Pick it back up (instead of a growing moment)
+    if (calm) specialMoment = true;
     if (greeted && !specialMoment && cookResumeRef.current()) specialMoment = true;
     // Study cards due today: BMO offers a little practice
     const due = study.dueCount();
@@ -765,6 +862,10 @@ const App: React.FC = () => {
   // --- Buttons ---
   const pressRed = useCallback(() => {
     if (wakeIfNeeded()) return;
+    if (breathing) {
+      stopBreathing();
+      return;
+    }
     if (konamiRef.current.expects('red')) {
       if (konamiRef.current.press('red')) celebrateKonami();
       return;
@@ -823,7 +924,7 @@ const App: React.FC = () => {
     }
     startListening();
   }, [wakeIfNeeded, celebrateKonami, cameraOn, hideScreenPhoto, gameOver, leaveMode, game, quickLine, isListening, cancelListening, canListen, interrupt,
-      startListening, setCaption, conversationMode, endedEmpty, setConvoActive]);
+      startListening, setCaption, conversationMode, endedEmpty, setConvoActive, breathing, stopBreathing]);
 
   const pressDirection = useCallback((direction: LookDirection) => {
     if (game.active) {
@@ -864,6 +965,10 @@ const App: React.FC = () => {
       return;
     }
 
+    if ((button === 'green' || button === 'triangle') && crisisRef.current.level >= SUPPORTIVE_FROM) {
+      quickLine("Let's just be together for now. BMO is right here.", 'calm', true);
+      return;
+    }
     if (button === 'green') {
       if (modeRef.current !== 'none') setMode('none');
       if (game.active) game.quit();
@@ -907,6 +1012,11 @@ const App: React.FC = () => {
       interrupt();
       return;
     }
+    if (crisisRef.current.level >= SUPPORTIVE_FROM) {
+      if (breathing) return;
+      if (!isSpeaking) quickLine('BMO is right here with you.', 'calm', true);
+      return;
+    }
     // Pokes still count while BMO says a poke line, so the battery joke is reachable
     if (isListening || isThinking || isSinging || waking || game.active || mode !== 'none' || panel !== 'none' || batteryLow || cameraOn) return;
     const reaction = poke();
@@ -925,13 +1035,13 @@ const App: React.FC = () => {
     if (isSpeaking) return;  // Just the sound while BMO is still talking
     quickLine(reaction.line, reaction.mood, reaction.spoken);
   }, [awake, dozing, audioBlocked, isListening, isThinking, isSinging, isSpeaking, waking, game.active, mode, panel, batteryLow, cameraOn,
-      wake, wakeFromDoze, unlockAndGreet, idle, poke, interrupt, quickLine]);
+      wake, wakeFromDoze, unlockAndGreet, idle, poke, interrupt, quickLine, breathing]);
 
   // Holding BMO's screen lets Football out of the mirror
   const startScreenHold = useCallback(() => {
     clearTimeout(screenHoldRef.current.timer);
     screenHoldRef.current.fired = false;
-    if (!awake || dozing || mode !== 'none' || cameraOn) return;
+    if (!awake || dozing || mode !== 'none' || cameraOn || crisisRef.current.level >= SUPPORTIVE_FROM) return;
     screenHoldRef.current.timer = window.setTimeout(() => {
       screenHoldRef.current.fired = true;
       meetFootball(true);
@@ -940,6 +1050,7 @@ const App: React.FC = () => {
   const cancelScreenHold = useCallback(() => clearTimeout(screenHoldRef.current.timer), []);
 
   const sendTyped = useCallback((text: string) => {
+    if (crisisWords(text)) return;
     idle.bump();
     unansweredNudgesRef.current = 0;
     soundEffects.playSend();
@@ -958,7 +1069,7 @@ const App: React.FC = () => {
     }
     lastSaidRef.current = text;
     send(text);  // Replaces any reply in progress
-  }, [idle, send, game, cook, study, fashion]);
+  }, [idle, send, game, cook, study, fashion, crisisWords]);
 
   // Start waking the backend as soon as the page opens (it sleeps when unused), and
   // tell the friend what's happening if a request has to wait for it
@@ -1008,13 +1119,15 @@ const App: React.FC = () => {
       fashion.handleInput(heard);
       return;
     }
+    if (crisisWords(heard)) return;
+    stillHereSaidRef.current = false;
     lastSaidRef.current = heard;
     idle.bump();
     unansweredNudgesRef.current = 0;
     if (convoActiveRef.current && isGoodbye(heard)) setConvoActive(false);  // BMO says bye, then stops listening
     soundEffects.playVoiceStop();
     send(heard);
-  }, [isListening, transcript, resetTranscript, send, caption, idle, setConvoActive, cook, study, fashion]);
+  }, [isListening, transcript, resetTranscript, send, caption, idle, setConvoActive, cook, study, fashion, crisisWords]);
 
   // Companions: hands-free listening (silence doesn't end it) in the kitchen, teaching BMO, and quiz questions
   const quizPhase = study.quiz?.phase;
@@ -1050,9 +1163,17 @@ const App: React.FC = () => {
       handledEmptyRef.current = endedEmpty;
       // Heard nothing after BMO finished talking: the friend has gone quiet
       if (!isSpeaking && !isThinking) {
-        setConvoActive(false);
-        quickLine('BMO will be right here!', 'happy', true);
-        return;
+        if (crisisRef.current.level >= SUPPORTIVE_FROM) {
+          // In a hard moment BMO keeps listening, and says so once
+          if (!stillHereSaidRef.current) {
+            stillHereSaidRef.current = true;
+            quickLine('BMO is still right here.', 'calm', true);
+          }
+        } else {
+          setConvoActive(false);
+          quickLine('BMO will be right here!', 'happy', true);
+          return;
+        }
       }
     }
     if (transcript.trim()) return;  // About to be sent
@@ -1089,7 +1210,7 @@ const App: React.FC = () => {
   const activity = memory.stats.chats + memory.stats.photos + memory.stats.memories + memory.stats.dishes;
   useEffect(() => {
     if (activityAtWakeRef.current === -1) activityAtWakeRef.current = activity;  // Wake flow just ended
-    if (!awake || dozing || busy || wakeFlowRef.current || milestoneThisVisitRef.current) return;
+    if (!awake || dozing || busy || wakeFlowRef.current || milestoneThisVisitRef.current || crisisRef.current.level >= QUIET_FROM) return;
     if (activity <= activityAtWakeRef.current) return;  // Only after something new happened this visit
     if (!dueMilestone(memory.stats, memory.milestonesSeen)) return;
     celebrateMilestone();
@@ -1177,6 +1298,8 @@ const App: React.FC = () => {
     else kitchen.dispatch({ type: 'stop' });
     if (STUDY_MODES.includes(modeRef.current)) study.leave(false);
     study.forget();
+    clearCrisis();
+    setCrisis(NO_CRISIS);
     if (modeRef.current === 'fashion') fashion.leave(false);
     fashion.resetOutfit();
     saveOutfit(null);
@@ -1206,6 +1329,7 @@ const App: React.FC = () => {
     : listeningOnly ? (transcript ? `“${transcript}…”` : 'BMO is listening…')
     : caption;
   const asleep = !awake || dozing;
+  const shownMood = softenMood(mood, crisis.level);
   // What BMO is wearing: the last fashion-show look (until it wakes again), else the friend's choice
   const outfit = wornOutfit(fashion.showOutfit, chosenOutfit);
   const outfitColour = outfit ? safeColour(outfit.colour, theme.face) : undefined;
@@ -1249,7 +1373,7 @@ const App: React.FC = () => {
         motion={motion}
         outfit={outfit}
         outfitColour={outfitColour}
-        pose={poseFor({ dancing: motion === 'dance', waving, asleep, speaking: isSpeaking, mood })}
+        pose={poseFor({ dancing: motion === 'dance', waving, asleep, speaking: isSpeaking, mood: shownMood })}
       >
         <button
           type="button"
@@ -1296,7 +1420,7 @@ const App: React.FC = () => {
             />
           ) : (
             <>
-              <div className={`w-[78%] mx-auto transition-all duration-300 ${mode === 'football' ? 'bmo-mirror' : ''} ${
+              <div className={`w-[78%] mx-auto transition-all duration-300 ${mode === 'football' ? 'bmo-mirror' : ''} ${breathing ? 'bmo-breathe' : ''} ${
                 asleep || !screenCaption ? 'h-[70%] mt-[15%]'
                   : screenCaption.length > LONG_CAPTION ? 'h-[34%] mt-[3%]'
                   : 'h-[52%] mt-[6%]'
@@ -1309,7 +1433,7 @@ const App: React.FC = () => {
                   />
                 ) : (
                 <BMOFace
-                  mood={mood}
+                  mood={shownMood}
                   look={mode === 'football' ? 'left' : look}
                   eyesClosed={eyesClosed}
                   faceColor={theme.face}

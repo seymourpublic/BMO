@@ -21,7 +21,7 @@ const MAX_REMEMBER_MESSAGES = 30;
 export type RpsResult = 'friend' | 'bmo' | 'ties';
 
 const toApiMessages = (history: HistoryMessage[]): Message[] =>
-  history.slice(-MAX_REMEMBER_MESSAGES).map(m => ({
+  history.filter(m => !m.sensitive).slice(-MAX_REMEMBER_MESSAGES).map(m => ({
     role: m.role,
     content: m.kind === 'story' ? '(Friend asked BMO for a story)' : m.text.slice(0, 2000)
   }));
@@ -46,9 +46,14 @@ export const useMemory = () => {
     const current = memoryRef.current;
     const pending = current.history.slice(current.pendingSince);
     if (rememberingRef.current || pending.length === 0) return;
+    const upTo = current.history.length;
+    // Only private (hard-moment) messages: nothing to learn from, just move past them
+    if (toApiMessages(pending).length === 0) {
+      update(m => ({ ...m, pendingSince: Math.max(m.pendingSince, upTo) }));
+      return;
+    }
 
     rememberingRef.current = true;
-    const upTo = current.history.length;
     try {
       const today = localDate();
       const { memory: learned, growth } = await rememberConversation(toPayload(current), toApiMessages(pending), today, keepalive);

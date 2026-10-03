@@ -155,6 +155,35 @@ Spec: `docs/superpowers/specs/2026-10-01-companions-design.md`.
 - **Shopping list:** `shoppingList.ts` (`bmo-shopping-v1`, max 60).
 - **When a dish is finished:** `stats.dishes`, the `first-dish` milestone, and a follow-up for the next day.
 
+### Crisis mode
+
+Spec: `docs/superpowers/specs/2026-10-03-crisis-mode-design.md`. Logic lives in `crisis.js` (backend) and `src/utils/crisis.ts` (app).
+
+**Levels:** 0 normal · 1 low · 2 heavy day · 3 hurting · 4 struggling · 5 at risk · 6 in danger, plus 18 kinds of feeling (`KINDS`).
+
+**On the server (`assessCrisis` in app.js):**
+- **Every normal chat:** a fast phrase screen (`screenForCrisis`); flagged messages, or ones sent while already at level ≥2, get the careful check (Haiku, `CRISIS_CHECK_PROMPT` → `sanitizeCrisisCheck`).
+- **Moving between levels** (`nextCrisisState`): up immediately, down one step after 3 calm turns; after level 5+, BMO stays at least at 4 for the visit.
+- **What BMO is told:** `buildCrisisBlock` goes last in the system prompt. The stream sends `{type:'crisis', level, kind, calmStreak, floor}` before the reply.
+- **Safety net:** for the special friend, unflagged messages still get a careful check in the background, so the alert can't be missed by the phrase list.
+- **Always on:** a "Keeping the friend safe" section in `BMO_PERSONALITY` (no guilt-tripping, no special messages in danger, real people only, never show characters).
+
+**The alert** (level 6, special friend only):
+- **When:** `shouldAlert` (confidence ≥ 0.7; never to a named source of harm, via `special.alert.ownerNames`).
+- **What you get:** `buildAlertMessage` = "check on her + category", never her words.
+- **Sending:** `createOwnerNotifier` (at most one per 4 h). **No channel yet** (`send: null` → the log says "alert not sent: no alert channel configured yet"). BMO only tells her "BMO is going to let someone who loves you know" when an alert really went out.
+
+**In the app (state in `bmo-crisis-v1`, restored for 2 h):**
+- **From level 2:** no nudges, idle songs/whispers, milestones or surprises.
+- **From level 4 (supportive):** games, modes and pokes are off (gentle lines instead), the kitchen keeps its place, there's no dozing, and talk mode never times out ("BMO is still right here").
+- **Face:** bright faces soften to the new `calm` mood from level 3.
+- **Breathing:** "breathe with BMO" makes the face grow and shrink with captions, 6 × 8 s; red stops it.
+- **Check-ins:** a yes to "Can BMO check on you tomorrow?" adds a gentle follow-up.
+- **Private messages:** messages from level 3+ are marked `sensitive` and never sent to `/api/remember`, whose prompt also refuses crisis content.
+- **Calm wake:** the day after level 5+, the wake is calm (`calmWake`).
+
+**Not built (owner deciding):** the "Get help now" card, help-line numbers by voice, and the alert channel.
+
 ### Fashion show (7c)
 
 Spec: `docs/superpowers/specs/2026-10-02-fashion-show-design.md`. Starts by phrase:
